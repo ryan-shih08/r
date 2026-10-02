@@ -1,6 +1,6 @@
 /**
  * 旅行共編網頁：Google Apps Script 後端
- * 資料存在綁定的 Google 試算表（行程 / 分攤 / 候選 / 清單 / 設定 / 匯率 等工作表）
+ * 資料存在綁定的 Google 試算表（行程 / 分攤 / 候選 / 清單 / 設定 / 紀錄 / 匯率 等工作表）
  */
 
 var SHEETS = {
@@ -23,8 +23,15 @@ var SHEETS = {
   settings: {
     name: '設定',
     headers: ['key', 'value']
+  },
+  log: {
+    name: '紀錄',
+    headers: ['id', 'time', 'actor', 'action', 'summary', 'changes', 'undoneBy']
   }
 };
+
+var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選', checklist: '清單', settings: '設定' };
+var LOG_KEEP = 300;
 
 var ITEM_TYPES = ['itinerary', 'expenses', 'candidates', 'checklist'];
 
@@ -187,75 +194,164 @@ function getData() {
   };
 }
 
-/** 新增或更新一筆（type: itinerary | expenses | candidates） */
-function saveItem(type, item) {
-  checkType_(type);
-  var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    ensureSheets_();
-    writeItem_(type, item);
-  } finally {
-    lock.releaseLock();
-  }
-  return getData();
+/* ---------- 讀寫工具 ---------- */
+
+function sheetOf_(type) {
+  return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS[type].name);
 }
 
-function writeItem_(type, item) {
+function readItem_(type, rowIndex) {
   var def = SHEETS[type];
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
-  item.id = item.id || Utilities.getUuid();
-  item.updatedAt = new Date().toISOString();
-  var rowIndex = findRow_(sheet, item.id);
-  if (type === 'candidates') {
-    // 投票只能透過 vote() 修改，編輯內容時保留原本的票與建立時間
-    if (rowIndex) {
-      var old = sheet.getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
-      item.votes = old[def.headers.indexOf('votes')];
-      item.createdAt = old[def.headers.indexOf('createdAt')];
-    } else {
-      item.votes = '{}';
-      item.createdAt = item.updatedAt;
-    }
-  }
-  if (type === 'checklist') {
-    // 勾選狀態只能透過 toggleCheck() 修改，編輯內容時保留
-    if (rowIndex) {
-      var prev = sheet.getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
-      item.done = prev[def.headers.indexOf('done')];
-      item.checkedBy = prev[def.headers.indexOf('checkedBy')];
-    } else {
-      item.done = '';
-      item.checkedBy = '[]';
-    }
-  }
+  var r = sheetOf_(type).getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
+  var obj = {};
+  def.headers.forEach(function (h, i) { obj[h] = r[i]; });
+  return obj;
+}
+
+/** 原樣寫入一列（rowIndex 為 0 時新增在最後） */
+function writeRow_(type, rowIndex, obj) {
+  var def = SHEETS[type];
+  var sheet = sheetOf_(type);
   var row = def.headers.map(function (h) {
-    var v = item[h] == null ? '' : String(item[h]);
-    return v.slice(0, 2000);
+    var v = obj[h] == null ? '' : String(obj[h]);
+    return v.slice(0, type === 'log' ? 45000 : 2000);
   });
   if (rowIndex) {
     sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
   } else {
-    var next = sheet.getLastRow() + 1;
-    sheet.getRange(next, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setNumberFormat('@').setValues([row]);
   }
 }
 
-function deleteItem(type, id) {
+function titleOf_(type, obj) {
+  if (!obj) return '';
+  return String(obj.title || obj.item || obj.id || '').slice(0, 60);
+}
+
+function actorOf_(opts, item) {
+  return String((opts && opts.actor) || (item && item.author) || '').trim().slice(0, 50);
+}
+
+/** 衝突錯誤：前端會解析 CONFLICT: 後面的 JSON */
+function conflict_(info) {
+  return new Error('CONFLICT:' + JSON.stringify(info));
+}
+
+/** 新增或更新一筆，回傳 { before, after } */
+function writeItem_(type, item) {
+  var sheet = sheetOf_(type);
+  item.id = item.id || Utilities.getUuid();
+  item.updatedAt = new Date().toISOString();
+  var rowIndex = findRow_(sheet, item.id);
+  var before = rowIndex ? readItem_(type, rowIndex) : null;
+  if (type === 'candidates') {
+    // 投票只能透過 vote() 修改，編輯內容時保留原本的票與建立時間
+    item.votes = before ? before.votes : '{}';
+    item.createdAt = before ? before.createdAt : item.updatedAt;
+  }
+  if (type === 'checklist') {
+    // 勾選狀態只能透過 toggleCheck() 修改，編輯內容時保留
+    item.done = before ? before.done : '';
+    item.checkedBy = before ? before.checkedBy : '[]';
+  }
+  writeRow_(type, rowIndex, item);
+  return { before: before, after: rowIndex ? readItem_(type, rowIndex) : readItem_(type, sheet.getLastRow()) };
+}
+
+/* ---------- 修改紀錄 ---------- */
+
+function addLog_(actor, action, summary, changes) {
+  var id = Utilities.getUuid();
+  writeRow_('log', 0, {
+    id: id, time: new Date().toISOString(), actor: actor, action: action,
+    summary: summary, changes: JSON.stringify(changes), undoneBy: ''
+  });
+  // 只保留最近的紀錄
+  var sheet = sheetOf_('log');
+  var extra = sheet.getLastRow() - 1 - LOG_KEEP;
+  if (extra > 50) sheet.deleteRows(2, extra);
+  return id;
+}
+
+/** 讀取最近的修改紀錄（新的在前） */
+function getLog(limit) {
+  ensureSheets_();
+  limit = Math.min(Number(limit) || 80, 200);
+  var sheet = sheetOf_('log');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var n = Math.min(limit, lastRow - 1);
+  var headers = SHEETS.log.headers;
+  var values = sheet.getRange(lastRow - n + 1, 1, n, headers.length).getDisplayValues();
+  return values.reverse().filter(function (r) { return r[0]; }).map(function (r) {
+    var obj = {};
+    headers.forEach(function (h, i) { obj[h] = r[i]; });
+    try { obj.changes = JSON.parse(obj.changes || '[]'); } catch (e) { obj.changes = []; }
+    return obj;
+  });
+}
+
+/* ---------- 對外 API ---------- */
+
+/**
+ * 新增或更新一筆（type: itinerary | expenses | candidates | checklist）
+ * opts.base：開始編輯時這筆的 updatedAt，用來偵測別人是否在這期間改過
+ * opts.force：發生衝突時仍要覆蓋
+ */
+function saveItem(type, item, opts) {
   checkType_(type);
+  opts = opts || {};
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS[type].name);
-    var rowIndex = findRow_(sheet, id);
-    if (rowIndex) sheet.deleteRow(rowIndex);
+    ensureSheets_();
+    if (item.id) {
+      var rowIndex = findRow_(sheetOf_(type), item.id);
+      if (!rowIndex) {
+        if (!opts.force) throw conflict_({ kind: 'deleted', title: titleOf_(type, item) });
+        item.id = '';  // 已被刪除：以新項目重新建立
+      } else if (opts.base && !opts.force) {
+        var cur = readItem_(type, rowIndex);
+        if (cur.updatedAt !== opts.base) {
+          throw conflict_({ kind: 'modified', by: cur.author, at: cur.updatedAt, title: titleOf_(type, cur) });
+        }
+      }
+    }
+    var res = writeItem_(type, item);
+    addLog_(actorOf_(opts, item), res.before ? 'update' : 'create',
+      (res.before ? '修改' : '新增') + TYPE_LABELS[type] + '「' + titleOf_(type, res.after) + '」',
+      [{ type: type, id: res.after.id, before: res.before, after: res.after }]);
   } finally {
     lock.releaseLock();
   }
   return getData();
 }
 
-/** 候選投票：value 為 1（讚）、-1（倒讚）或 0（取消） */
+function deleteItem(type, id, opts) {
+  checkType_(type);
+  opts = opts || {};
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensureSheets_();
+    var sheet = sheetOf_(type);
+    var rowIndex = findRow_(sheet, id);
+    if (rowIndex) {
+      var before = readItem_(type, rowIndex);
+      if (opts.base && !opts.force && before.updatedAt !== opts.base) {
+        throw conflict_({ kind: 'modified', by: before.author, at: before.updatedAt, title: titleOf_(type, before) });
+      }
+      sheet.deleteRow(rowIndex);
+      addLog_(actorOf_(opts), 'delete', '刪除' + TYPE_LABELS[type] + '「' + titleOf_(type, before) + '」',
+        [{ type: type, id: id, before: before, after: null }]);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
+
+/** 候選投票：value 為 1（讚）、-1（倒讚）或 0（取消）。投票不記入修改紀錄 */
 function vote(id, name, value) {
   name = String(name || '').trim().slice(0, 50);
   if (!name) throw new Error('請先選擇你的名字');
@@ -266,7 +362,7 @@ function vote(id, name, value) {
   try {
     ensureSheets_();
     var def = SHEETS.candidates;
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
+    var sheet = sheetOf_('candidates');
     var rowIndex = findRow_(sheet, id);
     if (!rowIndex) throw new Error('這個候選項目已被刪除或排入行程');
     var col = def.headers.indexOf('votes') + 1;
@@ -281,32 +377,40 @@ function vote(id, name, value) {
 }
 
 /** 把候選項目排入行程：新增一筆行程並移除該候選 */
-function scheduleCandidate(candidateId, event) {
+function scheduleCandidate(candidateId, event, opts) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     ensureSheets_();
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.candidates.name);
+    var sheet = sheetOf_('candidates');
     var rowIndex = findRow_(sheet, candidateId);
     if (!rowIndex) throw new Error('這個候選項目已被刪除或排入行程');
+    var cand = readItem_('candidates', rowIndex);
     event.id = '';
-    writeItem_('itinerary', event);
+    var res = writeItem_('itinerary', event);
     sheet.deleteRow(rowIndex);
+    addLog_(actorOf_(opts, event), 'schedule', '把「' + titleOf_('candidates', cand) + '」排入行程',
+      [{ type: 'candidates', id: cand.id, before: cand, after: null },
+       { type: 'itinerary', id: res.after.id, before: null, after: res.after }]);
   } finally {
     lock.releaseLock();
   }
   return getData();
 }
 
-function saveSettings(newSettings) {
+function saveSettings(newSettings, opts) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     ensureSheets_();
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.settings.name);
+    var sheet = sheetOf_('settings');
+    var before = getSettings_(), changedBefore = {}, changedAfter = {};
     Object.keys(DEFAULT_SETTINGS).forEach(function (k) {
       if (newSettings[k] == null) return;
       var value = String(newSettings[k]).slice(0, 500);
+      if (value === String(before[k])) return;
+      changedBefore[k] = before[k];
+      changedAfter[k] = value;
       var rowIndex = findRow_(sheet, k);
       if (rowIndex) {
         sheet.getRange(rowIndex, 2).setValue(value);
@@ -314,6 +418,10 @@ function saveSettings(newSettings) {
         sheet.appendRow([k, value]);
       }
     });
+    if (Object.keys(changedAfter).length) {
+      addLog_(actorOf_(opts), 'settings', '修改旅行設定',
+        [{ type: 'settings', id: 'settings', before: changedBefore, after: changedAfter }]);
+    }
   } finally {
     lock.releaseLock();
   }
@@ -331,24 +439,26 @@ function findRow_(sheet, id) {
 }
 
 /** 一次新增多筆（例如匯入建議行李清單） */
-function addItems(type, items) {
+function addItems(type, items, opts) {
   checkType_(type);
   if (!items || !items.length) return getData();
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     ensureSheets_();
-    items.slice(0, 100).forEach(function (item) {
+    var changes = items.slice(0, 100).map(function (item) {
       item.id = '';
-      writeItem_(type, item);
+      var res = writeItem_(type, item);
+      return { type: type, id: res.after.id, before: null, after: res.after };
     });
+    addLog_(actorOf_(opts), 'import', '匯入 ' + changes.length + ' 項' + TYPE_LABELS[type], changes);
   } finally {
     lock.releaseLock();
   }
   return getData();
 }
 
-/** 清單勾選：「每人都帶」的行李記錄每個人各自的勾選，其餘項目只有一個完成狀態 */
+/** 清單勾選：「每人都帶」的行李記錄每個人各自的勾選，其餘項目只有一個完成狀態。勾選不記入修改紀錄 */
 function toggleCheck(id, name, checked) {
   name = String(name || '').trim().slice(0, 50);
   var lock = LockService.getScriptLock();
@@ -356,7 +466,7 @@ function toggleCheck(id, name, checked) {
   try {
     ensureSheets_();
     var def = SHEETS.checklist;
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
+    var sheet = sheetOf_('checklist');
     var rowIndex = findRow_(sheet, id);
     if (!rowIndex) throw new Error('這個項目已被刪除');
     var row = sheet.getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
@@ -373,6 +483,96 @@ function toggleCheck(id, name, checked) {
     } else {
       sheet.getRange(rowIndex, def.headers.indexOf('done') + 1).setValue(checked ? '1' : '');
     }
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
+
+/* ---------- 復原 ---------- */
+
+// 投票、勾選這類欄位不靠 updatedAt 追蹤，復原內容修改時保留目前的狀態
+var LIVE_FIELDS = { candidates: ['votes'], checklist: ['done', 'checkedBy'] };
+
+/**
+ * 復原一筆修改紀錄：把每個變更還原成修改前的樣子。
+ * 如果之後又有人改過同一筆，會先回傳衝突讓使用者確認（opts.force 為 true 才覆蓋）。
+ * 復原本身也會記一筆紀錄，所以可以再「復原這次復原」。
+ */
+function undo(logId, opts) {
+  opts = opts || {};
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    ensureSheets_();
+    var logSheet = sheetOf_('log');
+    var logRow = findRow_(logSheet, logId);
+    if (!logRow) throw new Error('找不到這筆紀錄（可能太舊已被清除）');
+    var entry = readItem_('log', logRow);
+    if (entry.undoneBy) throw new Error('這筆已經復原過了');
+    var changes = [];
+    try { changes = JSON.parse(entry.changes || '[]'); } catch (e) {}
+    if (!changes.length) throw new Error('這筆紀錄沒有可以復原的內容');
+
+    // 1. 檢查之後是否又被修改
+    var settingsNow = getSettings_();
+    var conflicts = [];
+    changes.forEach(function (c) {
+      if (c.type === 'settings') {
+        Object.keys(c.after || {}).forEach(function (k) {
+          if (String(settingsNow[k]) !== String(c.after[k])) conflicts.push({ title: '設定：' + k, by: '' });
+        });
+        return;
+      }
+      var rowIndex = findRow_(sheetOf_(c.type), c.id);
+      var cur = rowIndex ? readItem_(c.type, rowIndex) : null;
+      var expected = c.after;
+      var same = (!cur && !expected) || (cur && expected && cur.updatedAt === expected.updatedAt);
+      if (!same) {
+        conflicts.push({
+          title: titleOf_(c.type, cur || expected || c.before),
+          by: cur ? cur.author : '',
+          kind: cur ? (expected ? 'modified' : 'recreated') : 'deleted'
+        });
+      }
+    });
+    if (conflicts.length && !opts.force) throw conflict_({ kind: 'undo', items: conflicts });
+
+    // 2. 還原
+    var inverse = [];
+    changes.slice().reverse().forEach(function (c) {
+      if (c.type === 'settings') {
+        var setSheet = sheetOf_('settings');
+        var nowVals = getSettings_(), was = {};
+        Object.keys(c.before || {}).forEach(function (k) {
+          was[k] = nowVals[k];
+          var r = findRow_(setSheet, k);
+          if (r) setSheet.getRange(r, 2).setValue(String(c.before[k])); else setSheet.appendRow([k, String(c.before[k])]);
+        });
+        inverse.push({ type: 'settings', id: 'settings', before: was, after: c.before });
+        return;
+      }
+      var sheet = sheetOf_(c.type);
+      var rowIndex = findRow_(sheet, c.id);
+      var cur = rowIndex ? readItem_(c.type, rowIndex) : null;
+      var after = null;
+      if (!c.before) {
+        if (rowIndex) sheet.deleteRow(rowIndex);
+      } else {
+        var restored = {};
+        Object.keys(c.before).forEach(function (k) { restored[k] = c.before[k]; });
+        if (cur) (LIVE_FIELDS[c.type] || []).forEach(function (k) { restored[k] = cur[k]; });
+        restored.updatedAt = new Date().toISOString();
+        writeRow_(c.type, rowIndex, restored);
+        after = readItem_(c.type, rowIndex || sheet.getLastRow());
+      }
+      inverse.push({ type: c.type, id: c.id, before: cur, after: after });
+    });
+
+    var newId = addLog_(actorOf_(opts), 'undo', '復原：' + entry.summary, inverse);
+    // addLog_ 可能清掉舊紀錄，重新找一次位置
+    var again = findRow_(logSheet, logId);
+    if (again) logSheet.getRange(again, SHEETS.log.headers.indexOf('undoneBy') + 1).setValue(newId);
   } finally {
     lock.releaseLock();
   }
