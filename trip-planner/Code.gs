@@ -16,13 +16,17 @@ var SHEETS = {
     name: '候選',
     headers: ['id', 'title', 'category', 'location', 'link', 'note', 'votes', 'author', 'createdAt', 'updatedAt']
   },
+  checklist: {
+    name: '清單',
+    headers: ['id', 'kind', 'title', 'scope', 'owner', 'dueDate', 'note', 'done', 'checkedBy', 'author', 'updatedAt']
+  },
   settings: {
     name: '設定',
     headers: ['key', 'value']
   }
 };
 
-var ITEM_TYPES = ['itinerary', 'expenses', 'candidates'];
+var ITEM_TYPES = ['itinerary', 'expenses', 'candidates', 'checklist'];
 
 function checkType_(type) {
   if (ITEM_TYPES.indexOf(type) < 0) throw new Error('未知的類型');
@@ -97,6 +101,7 @@ function getData() {
     itinerary: readRows_('itinerary'),
     expenses: readRows_('expenses'),
     candidates: readRows_('candidates'),
+    checklist: readRows_('checklist'),
     serverTime: new Date().toISOString()
   };
 }
@@ -130,6 +135,17 @@ function writeItem_(type, item) {
     } else {
       item.votes = '{}';
       item.createdAt = item.updatedAt;
+    }
+  }
+  if (type === 'checklist') {
+    // 勾選狀態只能透過 toggleCheck() 修改，編輯內容時保留
+    if (rowIndex) {
+      var prev = sheet.getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
+      item.done = prev[def.headers.indexOf('done')];
+      item.checkedBy = prev[def.headers.indexOf('checkedBy')];
+    } else {
+      item.done = '';
+      item.checkedBy = '[]';
     }
   }
   var row = def.headers.map(function (h) {
@@ -231,4 +247,53 @@ function findRow_(sheet, id) {
     if (ids[i][0] === id) return i + 2;
   }
   return 0;
+}
+
+/** 一次新增多筆（例如匯入建議行李清單） */
+function addItems(type, items) {
+  checkType_(type);
+  if (!items || !items.length) return getData();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    ensureSheets_();
+    items.slice(0, 100).forEach(function (item) {
+      item.id = '';
+      writeItem_(type, item);
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
+
+/** 清單勾選：「每人都帶」的行李記錄每個人各自的勾選，其餘項目只有一個完成狀態 */
+function toggleCheck(id, name, checked) {
+  name = String(name || '').trim().slice(0, 50);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensureSheets_();
+    var def = SHEETS.checklist;
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
+    var rowIndex = findRow_(sheet, id);
+    if (!rowIndex) throw new Error('這個項目已被刪除');
+    var row = sheet.getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
+    var kind = row[def.headers.indexOf('kind')];
+    var scope = row[def.headers.indexOf('scope')];
+    if (kind === 'pack' && scope === 'personal') {
+      if (!name) throw new Error('請先選擇你的名字');
+      var col = def.headers.indexOf('checkedBy') + 1;
+      var list = [];
+      try { list = JSON.parse(row[col - 1] || '[]') || []; } catch (e) {}
+      list = list.filter(function (n) { return n !== name; });
+      if (checked) list.push(name);
+      sheet.getRange(rowIndex, col).setValue(JSON.stringify(list));
+    } else {
+      sheet.getRange(rowIndex, def.headers.indexOf('done') + 1).setValue(checked ? '1' : '');
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
 }

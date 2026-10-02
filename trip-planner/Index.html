@@ -159,6 +159,34 @@
   .mini { border: 0; background: none; color: var(--muted); font-size: 13px; padding: 4px 6px; }
   .mini.go { background: var(--accent); color: #fff; border-radius: 999px; padding: 4px 12px; font-weight: 600; }
 
+  /* Checklist */
+  .switch { display: flex; background: var(--surface); border-radius: 12px; padding: 4px; box-shadow: var(--shadow); margin-bottom: 12px; }
+  .switch button { flex: 1; border: 0; background: none; border-radius: 9px; padding: 8px 0; font-weight: 600; color: var(--muted); }
+  .switch button.on { background: var(--accent); color: #fff; }
+  .progress { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 6px 0 2px; }
+  .progress > div { height: 100%; background: var(--ok); border-radius: 999px; transition: width .3s; }
+  .list-group { margin-bottom: 14px; }
+  .list-group h3 { display: flex; align-items: baseline; gap: 8px; }
+  .list-group h3 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .chk { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .chk:last-child { border-bottom: 0; }
+  .box {
+    flex: none; width: 26px; height: 26px; border-radius: 8px; border: 2px solid var(--line); background: var(--surface-2);
+    display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 15px; font-weight: 700; padding: 0;
+  }
+  .box.on { background: var(--ok); border-color: var(--ok); }
+  .chk-main { flex: 1; min-width: 0; cursor: pointer; }
+  .chk-title { font-weight: 600; word-break: break-word; }
+  .chk.done .chk-title { text-decoration: line-through; color: var(--muted); font-weight: 500; }
+  .chk-sub { font-size: 12px; color: var(--muted); margin-top: 2px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chk-sub .late { color: var(--danger); font-weight: 600; }
+  .who { display: inline-flex; gap: 3px; }
+  .who { flex-wrap: wrap; }
+  .who span { border-radius: 999px; font-size: 11px; padding: 0 7px; background: var(--line); color: var(--muted); }
+  .who span.ok { background: var(--ok-soft); color: var(--ok); font-weight: 700; }
+  .toggle-mine { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .owner-tag { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 0 8px; font-weight: 600; }
+
   /* Expenses */
   .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
   .stat { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
@@ -267,6 +295,7 @@
     <div id="loading" class="loading">資料載入中…</div>
     <section id="view-itinerary" class="hidden"></section>
     <section id="view-candidates" class="hidden"></section>
+    <section id="view-checklist" class="hidden"></section>
     <section id="view-expenses" class="hidden"></section>
     <section id="view-settings" class="hidden"></section>
   </main>
@@ -277,6 +306,7 @@
     <div class="tabs-inner">
       <button class="tab active" data-tab="itinerary" type="button"><span class="ic">🗓️</span>行程</button>
       <button class="tab" data-tab="candidates" type="button"><span class="ic">📌</span>候選</button>
+      <button class="tab" data-tab="checklist" type="button"><span class="ic">🎒</span>清單</button>
       <button class="tab" data-tab="expenses" type="button"><span class="ic">💰</span>分攤</button>
       <button class="tab" data-tab="settings" type="button"><span class="ic">⚙️</span>設定</button>
     </div>
@@ -299,7 +329,7 @@
   var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
   var POLL_MS = 30000;
 
-  var state = { settings: {}, itinerary: [], expenses: [], candidates: [], candFilter: 'all', tab: 'itinerary', modalOpen: false, busy: false };
+  var state = { settings: {}, itinerary: [], expenses: [], candidates: [], checklist: [], listView: 'pack', listMine: false, candFilter: 'all', tab: 'itinerary', modalOpen: false, busy: false };
 
   /* ---------- 後端呼叫（在 Apps Script 內用 google.script.run；本機預覽用 localStorage 模擬） ---------- */
   var api = (typeof google !== 'undefined' && google.script && google.script.run) ? remoteApi() : mockApi();
@@ -317,7 +347,9 @@
       deleteItem: function (t, id) { return call('deleteItem', [t, id]); },
       saveSettings: function (s) { return call('saveSettings', [s]); },
       vote: function (id, name, v) { return call('vote', [id, name, v]); },
-      scheduleCandidate: function (id, ev) { return call('scheduleCandidate', [id, ev]); }
+      scheduleCandidate: function (id, ev) { return call('scheduleCandidate', [id, ev]); },
+      addItems: function (t, items) { return call('addItems', [t, items]); },
+      toggleCheck: function (id, name, checked) { return call('toggleCheck', [id, name, checked]); }
     };
   }
 
@@ -330,25 +362,31 @@
       } catch (e) {}
       return {
         settings: { tripName: '我們的旅行（本機預覽）', startDate: '', endDate: '', members: '成員A,成員B,成員C,成員D', currency: 'TWD' },
-        itinerary: [], expenses: [], candidates: []
+        itinerary: [], expenses: [], candidates: [], checklist: []
       };
     }
-    function loadFull() { var d = load(); d.candidates = d.candidates || []; return d; }
+    function loadFull() { var d = load(); d.candidates = d.candidates || []; d.checklist = d.checklist || []; return d; }
+    function prepare(d, type, item) {
+      item.id = item.id || ('m' + Date.now() + Math.random().toString(16).slice(2, 6));
+      item.updatedAt = new Date().toISOString();
+      var old = d[type].find(function (x) { return x.id === item.id; });
+      if (type === 'candidates') {
+        item.votes = old ? old.votes : '{}';
+        item.createdAt = old ? old.createdAt : item.updatedAt;
+      }
+      if (type === 'checklist') {
+        item.done = old ? old.done : '';
+        item.checkedBy = old ? old.checkedBy : '[]';
+      }
+      if (old) d[type][d[type].indexOf(old)] = item; else d[type].push(item);
+    }
     function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
     function snapshot(d) { d.serverTime = new Date().toISOString(); return Promise.resolve(JSON.parse(JSON.stringify(d))); }
     return {
       getData: function () { return snapshot(loadFull()); },
       saveItem: function (type, item) {
         var d = loadFull();
-        item.id = item.id || ('m' + Date.now() + Math.random().toString(16).slice(2, 6));
-        item.updatedAt = new Date().toISOString();
-        var i = d[type].findIndex(function (x) { return x.id === item.id; });
-        if (type === 'candidates') {
-          var old = d.candidates.find(function (x) { return x.id === item.id; });
-          item.votes = old ? old.votes : '{}';
-          item.createdAt = old ? old.createdAt : item.updatedAt;
-        }
-        if (i >= 0) d[type][i] = item; else d[type].push(item);
+        prepare(d, type, item);
         save(d); return snapshot(d);
       },
       deleteItem: function (type, id) {
@@ -375,6 +413,24 @@
         ev.id = 'm' + Date.now(); ev.updatedAt = new Date().toISOString();
         d.itinerary.push(ev);
         d.candidates = d.candidates.filter(function (x) { return x.id !== id; });
+        save(d); return snapshot(d);
+      },
+      addItems: function (type, items) {
+        var d = loadFull();
+        items.forEach(function (it, i) { it.id = 'm' + Date.now() + '_' + i; prepare(d, type, it); });
+        save(d); return snapshot(d);
+      },
+      toggleCheck: function (id, name, checked) {
+        var d = loadFull();
+        var it = d.checklist.find(function (x) { return x.id === id; });
+        if (!it) return Promise.reject(new Error('這個項目已被刪除'));
+        if (it.kind === 'pack' && it.scope === 'personal') {
+          var list = JSON.parse(it.checkedBy || '[]').filter(function (n) { return n !== name; });
+          if (checked) list.push(name);
+          it.checkedBy = JSON.stringify(list);
+        } else {
+          it.done = checked ? '1' : '';
+        }
         save(d); return snapshot(d);
       }
     };
@@ -421,6 +477,7 @@
     state.itinerary = d.itinerary || [];
     state.expenses = d.expenses || [];
     state.candidates = d.candidates || [];
+    state.checklist = d.checklist || [];
     var now = new Date();
     $('#syncText').textContent = '已同步 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
     $('#loading').classList.add('hidden');
@@ -470,13 +527,14 @@
     }).join('');
 
     document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === state.tab); });
-    ['itinerary', 'candidates', 'expenses', 'settings'].forEach(function (t) {
+    ['itinerary', 'candidates', 'checklist', 'expenses', 'settings'].forEach(function (t) {
       $('#view-' + t).classList.toggle('hidden', t !== state.tab);
     });
     $('#fab').classList.toggle('hidden', state.tab === 'settings');
 
     if (state.tab === 'itinerary') renderItinerary();
     if (state.tab === 'candidates') renderCandidates();
+    if (state.tab === 'checklist') renderChecklist();
     if (state.tab === 'expenses') renderExpenses();
     if (state.tab === 'settings') renderSettings();
   }
@@ -663,6 +721,168 @@
     mutate(api.vote(id, me, next)).catch(function () { refresh(true); });
   }
 
+  /* ---------- 行李／待辦清單 ---------- */
+  var SUGGESTED_PACK = [
+    ['personal', '護照（效期 6 個月以上）'], ['personal', '手機＋充電線'], ['personal', '行動電源（要隨身帶上飛機）'],
+    ['personal', '信用卡／現金'], ['personal', '換洗衣物'], ['personal', '盥洗用品'], ['personal', '個人藥品'],
+    ['personal', '外套／雨具'], ['shared', '萬用轉接頭'], ['shared', '網卡／Wi-Fi 分享器'], ['shared', '常備藥品包'],
+    ['shared', '延長線／多孔充電器']
+  ];
+  var SUGGESTED_TODO = ['訂機票', '訂住宿', '買旅遊保險', '確認護照效期', '換外幣', '買網卡／租 Wi-Fi', '預約餐廳／門票', '辦理線上報到'];
+
+  function checkedBy(it) {
+    try { return JSON.parse(it.checkedBy || '[]') || []; } catch (e) { return []; }
+  }
+  function isPersonalPack(it) { return it.kind === 'pack' && it.scope === 'personal'; }
+  function isChecked(it, me) { return isPersonalPack(it) ? checkedBy(it).indexOf(me) >= 0 : it.done === '1'; }
+
+  function renderChecklist() {
+    var me = getMe(), ms = members(), view = state.listView;
+    var items = state.checklist.filter(function (x) { return (x.kind || 'pack') === view; });
+    var html = '<div class="section-title"><h2>' + (view === 'pack' ? '行李清單' : '出發前待辦') + '</h2><span class="hint">點勾選框打勾</span></div>' +
+      '<div class="switch"><button type="button" data-listview="pack" class="' + (view === 'pack' ? 'on' : '') + '">🎒 行李</button>' +
+      '<button type="button" data-listview="todo" class="' + (view === 'todo' ? 'on' : '') + '">✅ 待辦</button></div>';
+
+    if (!me) html += '<div class="card help">👆 先在上方「我是」選你的名字，才能勾選自己的行李</div>';
+
+    if (!items.length) {
+      html += '<div class="empty">' + (view === 'pack' ? '還沒有行李項目' : '還沒有待辦事項') +
+        '<br><br><button type="button" class="btn primary" id="importSuggest">一鍵加入常用' + (view === 'pack' ? '行李' : '待辦') + '</button>' +
+        '<div class="help" style="margin-top:8px">也可以按右下角 ＋ 自己新增</div></div>';
+      $('#view-checklist').innerHTML = html;
+      return;
+    }
+
+    html += '<label class="toggle-mine"><input type="checkbox" id="mineOnly"' + (state.listMine ? ' checked' : '') + '> 只看跟我有關的</label>';
+
+    if (view === 'pack') {
+      var personal = items.filter(isPersonalPack);
+      var shared = items.filter(function (x) { return !isPersonalPack(x); });
+      if (state.listMine && me) shared = shared.filter(function (x) { return x.owner === me; });
+      var mine = personal.length + items.filter(function (x) { return !isPersonalPack(x) && x.owner === me; }).length;
+      var mineDone = personal.filter(function (x) { return isChecked(x, me); }).length +
+        items.filter(function (x) { return !isPersonalPack(x) && x.owner === me && x.done === '1'; }).length;
+      if (me) {
+        var pct = mine ? Math.round(mineDone / mine * 100) : 0;
+        html += '<div class="card"><div style="display:flex;justify-content:space-between"><b>' + esc(me) + ' 的打包進度</b><span>' + mineDone + ' / ' + mine + '</span></div>' +
+          '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+          (mine && mineDone === mine ? '<div class="help">全部打包好了，出發吧！✈️</div>' : '') + '</div>';
+      }
+      if (personal.length) {
+        html += '<div class="card list-group"><h3>🧳 每人都要帶 <small>各自勾選</small></h3>' + personal.map(function (it) {
+          var by = checkedBy(it);
+          var whoHtml = '<span class="who">' + ms.map(function (m) {
+            return '<span class="' + (by.indexOf(m) >= 0 ? 'ok' : '') + '">' + (by.indexOf(m) >= 0 ? '✓' : '') + esc(m) + '</span>';
+          }).join('') + '</span>';
+          return chkRow(it, isChecked(it, me), whoHtml + '<span>' + by.filter(function (n) { return ms.indexOf(n) >= 0; }).length + '/' + ms.length + ' 人已準備</span>');
+        }).join('') + '</div>';
+      }
+      if (shared.length) {
+        html += '<div class="card list-group"><h3>🤝 共用物品 <small>一人負責帶</small></h3>' + shared.map(function (it) {
+          return chkRow(it, it.done === '1', it.owner ? '<span class="owner-tag">' + esc(it.owner) + ' 負責</span>' : '<span class="late">還沒有人負責</span>');
+        }).join('') + '</div>';
+      }
+    } else {
+      var today = fmtISO(new Date());
+      var todos = items.slice();
+      if (state.listMine && me) todos = todos.filter(function (x) { return x.owner === me || !x.owner; });
+      todos.sort(function (a, b) {
+        return (a.done === '1') - (b.done === '1') || (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+      });
+      var doneCount = items.filter(function (x) { return x.done === '1'; }).length;
+      html += '<div class="card"><div style="display:flex;justify-content:space-between"><b>整體進度</b><span>' + doneCount + ' / ' + items.length + '</span></div>' +
+        '<div class="progress"><div style="width:' + Math.round(doneCount / items.length * 100) + '%"></div></div></div>';
+      html += '<div class="card list-group">' + (todos.length ? todos.map(function (it) {
+        var late = it.done !== '1' && it.dueDate && it.dueDate < today;
+        var sub = (it.owner ? '<span class="owner-tag">' + esc(it.owner) + '</span>' : '<span>未指派</span>') +
+          (it.dueDate ? '<span class="' + (late ? 'late' : '') + '">' + (late ? '⚠️ 已過期 ' : '📅 ') + esc(fmtShort(it.dueDate)) + '</span>' : '');
+        return chkRow(it, it.done === '1', sub);
+      }).join('') : '<div class="help">沒有跟你有關的待辦</div>') + '</div>';
+    }
+    $('#view-checklist').innerHTML = html;
+  }
+
+  function chkRow(it, on, subHtml) {
+    return '<div class="chk' + (on ? ' done' : '') + '">' +
+      '<button type="button" class="box' + (on ? ' on' : '') + '" data-check="' + esc(it.id) + '" aria-label="勾選">' + (on ? '✓' : '') + '</button>' +
+      '<div class="chk-main" data-edit-chk="' + esc(it.id) + '"><div class="chk-title">' + esc(it.title) + '</div>' +
+      '<div class="chk-sub">' + subHtml + '</div>' +
+      (it.note ? '<div class="chk-sub">' + esc(it.note) + '</div>' : '') + '</div></div>';
+  }
+
+  function toggleItem(id) {
+    var me = getMe();
+    var it = state.checklist.find(function (x) { return x.id === id; });
+    if (!it) return;
+    if (isPersonalPack(it) && !me) { toast('請先在上方「我是」選你的名字'); return; }
+    var next = !isChecked(it, me);
+    // 先更新畫面
+    if (isPersonalPack(it)) {
+      var by = checkedBy(it).filter(function (n) { return n !== me; });
+      if (next) by.push(me);
+      it.checkedBy = JSON.stringify(by);
+    } else {
+      it.done = next ? '1' : '';
+    }
+    renderChecklist();
+    mutate(api.toggleCheck(id, me, next)).catch(function () { refresh(true); });
+  }
+
+  function importSuggestions() {
+    var me = getMe(), view = state.listView;
+    var items = view === 'pack'
+      ? SUGGESTED_PACK.map(function (x) { return { kind: 'pack', scope: x[0], title: x[1], owner: '', author: me }; })
+      : SUGGESTED_TODO.map(function (t) { return { kind: 'todo', scope: '', title: t, owner: '', author: me }; });
+    mutate(api.addItems('checklist', items), '已加入 ' + items.length + ' 項，可以再自行增刪');
+  }
+
+  function openChecklistForm(item) {
+    var ms = members();
+    var it = item || { kind: state.listView, scope: state.listView === 'pack' ? 'personal' : '', owner: state.listView === 'todo' ? getMe() : '' };
+    var isPack = it.kind === 'pack';
+    var owners = ms.slice();
+    if (it.owner && owners.indexOf(it.owner) < 0) owners.push(it.owner);
+    var html = '<h3>' + (item ? '編輯' : '新增') + (isPack ? '行李' : '待辦') + '</h3><form id="chkForm">' +
+      '<div class="field"><label>' + (isPack ? '物品' : '事項') + ' *</label><input name="title" required maxlength="100" value="' + esc(it.title) + '" placeholder="' + (isPack ? '例如：轉接頭、防曬乳' : '例如：訂機票、買保險') + '"></div>' +
+      (isPack ? '<div class="field"><label>類型</label><div class="seg" id="scopeSeg">' +
+        '<button type="button" data-scope="personal" class="' + (it.scope === 'personal' ? 'on' : '') + '">🧳 每人都要帶</button>' +
+        '<button type="button" data-scope="shared" class="' + (it.scope !== 'personal' ? 'on' : '') + '">🤝 共用（一人帶）</button></div></div>' : '') +
+      '<div class="field" id="ownerField"' + (isPack && it.scope === 'personal' ? ' style="display:none"' : '') + '><label>' + (isPack ? '誰負責帶？' : '誰負責？') + '</label><div class="seg" id="ownerSeg">' +
+        '<button type="button" data-owner="" class="' + (!it.owner ? 'on' : '') + '">未定</button>' +
+        owners.map(function (m) { return '<button type="button" data-owner="' + esc(m) + '" class="' + (m === it.owner ? 'on' : '') + '">' + esc(m) + '</button>'; }).join('') +
+      '</div></div>' +
+      (!isPack ? '<div class="field"><label>期限</label><input type="date" name="dueDate" value="' + esc(it.dueDate) + '"></div>' : '') +
+      '<div class="field"><label>備註</label><input name="note" maxlength="300" value="' + esc(it.note) + '"></div>' +
+      '<div class="sheet-actions">' + (item ? '<button type="button" class="btn danger" id="delBtn">刪除</button>' : '') +
+      '<span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button>' +
+      '<button type="submit" class="btn primary">儲存</button></div></form>';
+    openModal(html, function (root) {
+      var scope = isPack ? (it.scope === 'personal' ? 'personal' : 'shared') : '', owner = it.owner || '';
+      if (isPack) bindSeg($('#scopeSeg', root), 'scope', function (v) {
+        scope = v; $('#ownerField', root).style.display = v === 'personal' ? 'none' : '';
+      });
+      bindSeg($('#ownerSeg', root), 'owner', function (v) { owner = v; });
+      $('#cancelBtn', root).onclick = closeModal;
+      if (item) $('#delBtn', root).onclick = function () {
+        if (!confirm('確定要刪除「' + item.title + '」？')) return;
+        closeModal();
+        mutate(api.deleteItem('checklist', item.id), '已刪除');
+      };
+      $('#chkForm', root).onsubmit = function (e) {
+        e.preventDefault();
+        var f = e.target;
+        var data = {
+          id: item ? item.id : '', kind: it.kind, title: f.title.value.trim(), scope: scope,
+          owner: scope === 'personal' ? '' : owner, dueDate: f.dueDate ? f.dueDate.value : '',
+          note: f.note.value.trim(), author: item ? item.author : getMe()
+        };
+        if (!data.title) return;
+        disableForm(f);
+        mutate(api.saveItem('checklist', data), '已儲存').then(closeModal, function () { enableForm(f); });
+      };
+    });
+  }
+
   function computeBalances() {
     var ms = members();
     var people = {};
@@ -756,6 +976,7 @@
         '・上方「我是」選你的名字，新增的項目會標上你的名字，記帳時預設由你付款。<br>' +
         '・還沒決定的景點、餐廳先放「候選」，大家投票後按「排入行程」選日期。<br>' +
         '・行程可先標成「待確認」（虛線框），決定後再改成「已確定」。<br>' +
+        '・「清單」分成行李和待辦：「每人都要帶」的行李各自勾選；共用物品和待辦可以指定負責人。<br>' +
         '・每天標題旁的「🗺️ 路線」會依時間順序在 Google 地圖打開當天路線（最多 10 個地點）。<br>' +
         '・頁面每 30 秒自動同步，也可以按「重新整理」立刻看到別人的修改。<br>' +
         '・所有資料都存在背後的 Google 試算表，可以直接打開查看或備份。</div></div>';
@@ -910,6 +1131,7 @@
   $('#fab').addEventListener('click', function () {
     if (state.tab === 'itinerary') openEventForm(null);
     else if (state.tab === 'candidates') openCandidateForm(null);
+    else if (state.tab === 'checklist') openChecklistForm(null);
     else if (state.tab === 'expenses') {
       if (!members().length) { toast('請先到「設定」填寫成員'); return; }
       openExpenseForm(null);
@@ -945,8 +1167,22 @@
       if (c2) openEventForm(null, null, c2);
       return;
     }
+    var ck = e.target.closest('[data-check]');
+    if (ck) { toggleItem(ck.dataset.check); return; }
+    var ek = e.target.closest('[data-edit-chk]');
+    if (ek) {
+      var ci = state.checklist.find(function (x) { return x.id === ek.dataset.editChk; });
+      if (ci) openChecklistForm(ci);
+      return;
+    }
+    var lv = e.target.closest('[data-listview]');
+    if (lv) { state.listView = lv.dataset.listview; renderChecklist(); return; }
+    if (e.target.id === 'importSuggest') { e.target.disabled = true; importSuggestions(); return; }
     var fb = e.target.closest('[data-filter]');
     if (fb) { state.candFilter = fb.dataset.filter; renderCandidates(); }
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'mineOnly') { state.listMine = e.target.checked; renderChecklist(); }
   });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'settingsForm') return;
