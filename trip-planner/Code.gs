@@ -37,6 +37,9 @@ var SHEETS = {
 var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選', checklist: '清單', comments: '留言', settings: '設定' };
 var LOG_KEEP = 300;
 
+/** 程式版本：要跟 Index.html 裡的 APP_VERSION 一樣，不一樣代表其中一個檔案沒更新到 */
+var APP_VERSION = '2026-10-02.8';
+
 /**
  * 上傳圖片存放的 Google 雲端硬碟資料夾 ID
  * （打開資料夾後，網址 drive.google.com/drive/folders/ 後面那一段）
@@ -204,6 +207,7 @@ function getData() {
     candidates: readRows_('candidates'),
     checklist: readRows_('checklist'),
     comments: readRows_('comments'),
+    version: APP_VERSION,
     serverTime: new Date().toISOString()
   };
 }

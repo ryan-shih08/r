@@ -386,6 +386,9 @@
 (function () {
   'use strict';
 
+  // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
+  var APP_VERSION = '2026-10-02.8';
+
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
     { key: 'sight', label: '景點', icon: '📍', color: 'var(--c-sight)' },
@@ -405,6 +408,10 @@
     function call(fn, args) {
       return new Promise(function (resolve, reject) {
         var r = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+        if (typeof r[fn] !== 'function') {
+          reject(new Error('伺服器找不到「' + fn + '」功能，代表 程式碼.gs 還是舊版。請把 程式碼.gs 換成新版、存檔，再重新部署「新版本」'));
+          return;
+        }
         r[fn].apply(r, args);
       });
     }
@@ -453,6 +460,7 @@
       d.fx = { base: base, rates: rates };
       d.serverTime = new Date().toISOString(); return Promise.resolve(JSON.parse(JSON.stringify(d))); }
     return {
+      isMock: true,
       getData: function () { return snapshot(loadFull()); },
       saveItem: function (type, item) {
         var d = loadFull();
@@ -818,7 +826,16 @@
   }
 
   /* ---------- 資料同步 ---------- */
+  var versionWarned = false;
+  function checkVersion(d) {
+    if (versionWarned || api.isMock || d.version === APP_VERSION) return;
+    versionWarned = true;
+    alert('⚠️ 程式版本不一致\n\n網頁畫面（Index.html）：' + APP_VERSION + '\n伺服器（程式碼.gs）：' + (d.version || '舊版') +
+      '\n\n請確認兩個檔案都換成最新版並存檔，再到「管理部署作業 → 編輯 → 新版本 → 部署」。版本不一致時部分功能會出錯。');
+  }
+
   function applyData(d) {
+    checkVersion(d);
     state.settings = d.settings || {};
     state.itinerary = d.itinerary || [];
     state.expenses = d.expenses || [];
