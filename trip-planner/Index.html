@@ -231,6 +231,15 @@
   .cmt-form textarea { flex: 1; border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 10px 12px; resize: none; min-height: 44px; outline: none; }
   .cmt-form textarea:focus { border-color: var(--accent); }
 
+  /* Offline PDF */
+  .pdf-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--text); }
+  .pdf-info { background: var(--surface-2); border-radius: 12px; padding: 12px; margin: 12px 0; }
+  .pdf-info .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .pdf-info a.btn { text-decoration: none; display: inline-block; }
+  .warn { color: var(--warn); font-size: 13px; margin-top: 6px; }
+  details.help { margin-top: 12px; }
+  details.help summary { cursor: pointer; color: var(--text); }
+
   /* History */
   .hist { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .hist:last-child { border-bottom: 0; }
@@ -400,7 +409,7 @@
       });
     }
     var api = {};
-    ['getData', 'saveItem', 'deleteItem', 'saveSettings', 'vote', 'scheduleCandidate', 'addItems', 'toggleCheck', 'getLog', 'undo', 'uploadImage', 'discardImages']
+    ['getData', 'saveItem', 'deleteItem', 'saveSettings', 'vote', 'scheduleCandidate', 'addItems', 'toggleCheck', 'getLog', 'undo', 'uploadImage', 'discardImages', 'exportPdf']
       .forEach(function (fn) {
         api[fn] = function () { return call(fn, Array.prototype.slice.call(arguments)); };
       });
@@ -488,6 +497,7 @@
       // 本機預覽：圖片直接以 data URL 存在瀏覽器
       uploadImage: function (b64, mime) { return Promise.resolve({ id: 'data:' + mime + ';base64,' + b64 }); },
       discardImages: function () { return Promise.resolve(true); },
+      exportPdf: function () { return Promise.reject(new Error('本機預覽模式不支援產生 PDF')); },
       undo: function () { return Promise.reject(new Error('本機預覽模式不支援復原')); },
       toggleCheck: function (id, name, checked) {
         var d = loadFull();
@@ -643,6 +653,40 @@
         uploads = []; closed = true; state.onModalClose = null;
       }
     };
+  }
+
+  /* ---------- 離線 PDF ---------- */
+  function openPdfPanel() {
+    openModal('<h3>📥 離線版行程（PDF）</h3><div id="pdfBody"></div>' +
+      '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">關閉</button></div>',
+      function (root) {
+        $('#cancelBtn', root).onclick = closeModal;
+        function draw(generating) {
+          var info = null;
+          try { info = JSON.parse(state.settings.lastPdf || 'null'); } catch (e) {}
+          var stale = info && state.itinerary.some(function (it) { return (it.updatedAt || '') > info.at; });
+          var id = info ? encodeURIComponent(info.id) : '';
+          $('#pdfBody', root).innerHTML =
+            '<div class="help">把目前的行程（含照片縮圖）存成 PDF，沒網路時也能打開。PDF 只能看不能改，行程有變動請重新產生。</div>' +
+            (info ? '<div class="pdf-info"><b>最新版</b>　' + esc(fmtDateTime(info.at)) + (info.by ? ' 由 ' + esc(info.by) + ' 產生' : '') +
+              (info.size ? '・' + (Number(info.size) >= 1048576 ? (Number(info.size) / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(Number(info.size) / 1024)) + ' KB') : '') +
+              (stale ? '<div class="warn">⚠️ 產生之後行程又有修改，建議重新產生</div>' : '') +
+              '<div class="btns"><a class="btn primary" href="https://drive.google.com/uc?export=download&id=' + id + '" target="_blank" rel="noopener">下載到手機</a>' +
+              '<a class="btn ghost" href="https://drive.google.com/file/d/' + id + '/view" target="_blank" rel="noopener">在雲端硬碟開啟</a></div></div>'
+              : '<div class="pdf-info">還沒有產生過離線版</div>') +
+            '<button type="button" class="btn ' + (info && !stale ? 'ghost' : 'primary') + '" id="genPdf"' + (generating ? ' disabled' : '') + '>' +
+              (generating ? '產生中，請稍候（約 10–60 秒）…' : (info ? '重新產生最新版' : '產生離線版')) + '</button>' +
+            '<details class="help"><summary>怎麼存到手機，沒網路也能看？</summary>' +
+              '<p><b>iPhone</b>：按「下載到手機」→ 打開 PDF 後按「分享」→「儲存到檔案」。之後在「檔案」App 裡就能離線打開。</p>' +
+              '<p><b>Android</b>：按「下載到手機」，檔案會存在「下載」資料夾；或在 Google 雲端硬碟 App 把這個 PDF 設成「可離線使用」。</p>' +
+              '<p>每次重新產生都是新檔案，記得重新下載一次。舊的離線版會自動移到垃圾桶。</p></details>';
+          $('#genPdf', root).onclick = function () {
+            draw(true);
+            mutate(api.exportPdf(opts(null)), '離線版已產生').then(function () { draw(false); }, function () { draw(false); });
+          };
+        }
+        draw(false);
+      });
   }
 
   /* ---------- 留言 ---------- */
@@ -899,7 +943,7 @@
     var keys = Object.keys(groups).filter(function (k) { return k; }).sort();
     if (groups['']) keys.push('');
 
-    var html = '<div class="section-title"><h2>行程時間軸</h2><span class="hint">點卡片可編輯</span></div>';
+    var html = '<div class="section-title"><h2>行程時間軸</h2><button type="button" class="pdf-btn" id="pdfBtn">📥 離線版</button></div>';
     if (!keys.length) {
       html += '<div class="empty">還沒有任何行程<br>按右下角 ＋ 新增第一個吧！</div>';
     }
@@ -1654,6 +1698,7 @@
     }
   });
   document.addEventListener('click', function (e) {
+    if (e.target.closest('#pdfBtn')) { openPdfPanel(); return; }
     var cb = e.target.closest('[data-comments]');
     if (cb) {
       var cp = cb.dataset.comments.split('|');

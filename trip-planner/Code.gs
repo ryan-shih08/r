@@ -701,3 +701,146 @@ function discardImages(ids) {
   });
   return true;
 }
+
+/* ---------- 離線 PDF ---------- */
+
+var PDF_CATEGORY = { transport: '交通', sight: '景點', food: '餐廳', stay: '住宿', other: '其他' };
+var PDF_WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+var PDF_MAX_IMAGE_BYTES = 40 * 1024 * 1024;
+
+function htmlEsc_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function pdfDate_(s) {
+  var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(s || ''));
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function pdfDateLabel_(s) {
+  var d = pdfDate_(s);
+  return d ? (d.getMonth() + 1) + '/' + d.getDate() + '（' + PDF_WEEK[d.getDay()] + '）' : s;
+}
+
+/** PDF 存放的資料夾：上傳圖片資料夾的上一層（例如「2027 泰國曼谷」） */
+function pdfFolder_() {
+  var upload = DriveApp.getFolderById(UPLOAD_FOLDER_ID);
+  var parents = upload.getParents();
+  return parents.hasNext() ? parents.next() : upload;
+}
+
+function buildItineraryHtml_(settings, items, generatedAt, actor) {
+  var start = pdfDate_(settings.startDate);
+  var groups = {}, keys = [];
+  items.forEach(function (it) {
+    var k = pdfDate_(it.date) ? it.date : '';
+    if (!groups[k]) { groups[k] = []; keys.push(k); }
+    groups[k].push(it);
+  });
+  keys.sort(function (a, b) { return a === '' ? 1 : (b === '' ? -1 : a.localeCompare(b)); });
+
+  var imageBytes = 0, skipped = 0;
+  function imagesHtml(it) {
+    var ids = imageIds_(it.images);
+    if (!ids.length) return '';
+    var out = [];
+    ids.forEach(function (id) {
+      var f = uploadedFile_(id);
+      if (!f || f.isTrashed()) return;
+      var blob = f.getBlob();
+      var bytes = blob.getBytes();
+      if (imageBytes + bytes.length > PDF_MAX_IMAGE_BYTES) { skipped++; return; }
+      imageBytes += bytes.length;
+      out.push('<img src="data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(bytes) + '" style="width:150px;margin:6px 6px 0 0;border:1px solid #ddd;">');
+    });
+    return out.length ? '<div>' + out.join('') + '</div>' : '';
+  }
+
+  var dateRange = settings.startDate && settings.endDate
+    ? pdfDateLabel_(settings.startDate) + ' – ' + pdfDateLabel_(settings.endDate) : '';
+  var html = '<html><head><meta charset="utf-8"><style>' +
+    'body{font-family:Arial,"Noto Sans TC","Noto Sans Thai",sans-serif;color:#222;font-size:12pt;}' +
+    'h1{font-size:22pt;margin:0 0 4px;color:#c85a28;}' +
+    '.sub{color:#666;font-size:10pt;margin-bottom:16px;}' +
+    'h2{font-size:14pt;background:#2b2a28;color:#fff;padding:5px 10px;margin:18px 0 6px;}' +
+    'table{width:100%;border-collapse:collapse;}' +
+    'td{vertical-align:top;padding:8px 6px;border-bottom:1px solid #ddd;}' +
+    'td.t{width:70px;font-weight:bold;white-space:nowrap;}' +
+    '.title{font-size:13pt;font-weight:bold;}' +
+    '.cat{color:#888;font-size:9pt;font-weight:normal;}' +
+    '.tent{color:#c98a1b;font-size:9pt;font-weight:normal;}' +
+    '.loc{font-size:13pt;margin-top:3px;}' +
+    '.note{color:#555;font-size:10pt;margin-top:3px;}' +
+    '.foot{color:#999;font-size:9pt;margin-top:24px;}' +
+    '</style></head><body>' +
+    '<h1>' + htmlEsc_(settings.tripName || '旅行行程') + '</h1>' +
+    '<div class="sub">' + htmlEsc_(dateRange) + (dateRange ? '　' : '') + '成員：' + htmlEsc_(String(settings.members || '').split(',').join('、')) +
+    '<br>離線版產生於 ' + htmlEsc_(generatedAt) + (actor ? '（' + htmlEsc_(actor) + '）' : '') + '，之後的修改請看網頁</div>';
+
+  if (!keys.length) html += '<p>目前還沒有任何行程。</p>';
+  keys.forEach(function (k) {
+    var list = groups[k].slice().sort(function (a, b) { return (a.time || '99:99').localeCompare(b.time || '99:99'); });
+    var dayNo = '';
+    if (k && start) {
+      var n = Math.round((pdfDate_(k) - start) / 86400000) + 1;
+      if (n >= 1) dayNo = 'Day ' + n + '　';
+    }
+    html += '<h2>' + dayNo + (k ? htmlEsc_(pdfDateLabel_(k)) : '日期未定') + '</h2><table>';
+    list.forEach(function (it) {
+      html += '<tr><td class="t">' + htmlEsc_(it.time || '—') + (it.endTime ? '<br><span class="cat">~' + htmlEsc_(it.endTime) + '</span>' : '') + '</td><td>' +
+        '<div class="title">' + htmlEsc_(it.title) + ' <span class="cat">［' + (PDF_CATEGORY[it.category] || '其他') + '］</span>' +
+        (it.status !== 'confirmed' ? ' <span class="tent">待確認</span>' : '') + '</div>' +
+        (it.location ? '<div class="loc">地點：' + htmlEsc_(it.location) + '</div>' : '') +
+        (it.note ? '<div class="note">' + htmlEsc_(it.note).replace(/\n/g, '<br>') + '</div>' : '') +
+        imagesHtml(it) + '</td></tr>';
+    });
+    html += '</table>';
+  });
+  if (skipped) html += '<div class="foot">※ 照片太多，有 ' + skipped + ' 張沒有放進 PDF，請到網頁查看。</div>';
+  html += '<div class="foot">' + htmlEsc_(settings.tripName || '') + '・旅行共編</div></body></html>';
+  return html;
+}
+
+/**
+ * 產生行程的離線 PDF：存到旅行資料夾、設成知道連結可看，並刪掉舊的離線版。
+ * 回傳最新的 PDF 資訊（也會記在設定的 lastPdf，大家都能下載）。
+ */
+function exportPdf(opts) {
+  ensureSheets_();
+  var actor = actorOf_(opts);
+  var settings = getSettings_();
+  var now = new Date();
+  var generatedAt = Utilities.formatDate(now, 'Asia/Taipei', 'yyyy/MM/dd HH:mm');
+  var html = buildItineraryHtml_(settings, readRows_('itinerary'), generatedAt, actor);
+  var baseName = String(settings.tripName || '旅行').replace(/[\\\/:*?"<>|]/g, '').slice(0, 40) + '_離線行程_';
+  var pdf = Utilities.newBlob(html, 'text/html', 'itinerary.html').getAs('application/pdf')
+    .setName(baseName + Utilities.formatDate(now, 'Asia/Taipei', 'yyyyMMdd_HHmm') + '.pdf');
+
+  var folder = pdfFolder_();
+  var file = folder.createFile(pdf);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    // 只清掉之前產生的離線版（檔名格式相同），資料夾裡其他檔案不動
+    var old = null;
+    try { old = JSON.parse(getSettings_().lastPdf || 'null'); } catch (e) {}
+    if (old && old.id && old.id !== file.getId()) {
+      try {
+        var prev = DriveApp.getFileById(old.id);
+        if (/_離線行程_\d{8}_\d{4}\.pdf$/.test(prev.getName())) prev.setTrashed(true);
+      } catch (e) {}
+    }
+    var info = { id: file.getId(), name: file.getName(), at: now.toISOString(), by: actor, size: file.getSize() };
+    var sheet = sheetOf_('settings');
+    var r = findRow_(sheet, 'lastPdf');
+    if (r) sheet.getRange(r, 2).setValue(JSON.stringify(info)); else sheet.appendRow(['lastPdf', JSON.stringify(info)]);
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
