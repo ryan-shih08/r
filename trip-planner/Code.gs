@@ -6,7 +6,7 @@
 var SHEETS = {
   itinerary: {
     name: '行程',
-    headers: ['id', 'date', 'time', 'endTime', 'title', 'category', 'location', 'note', 'status', 'author', 'updatedAt']
+    headers: ['id', 'date', 'time', 'endTime', 'title', 'category', 'location', 'note', 'status', 'author', 'updatedAt', 'images']
   },
   expenses: {
     name: '分攤',
@@ -14,7 +14,7 @@ var SHEETS = {
   },
   candidates: {
     name: '候選',
-    headers: ['id', 'title', 'category', 'location', 'link', 'note', 'votes', 'author', 'createdAt', 'updatedAt']
+    headers: ['id', 'title', 'category', 'location', 'link', 'note', 'votes', 'author', 'createdAt', 'updatedAt', 'images']
   },
   checklist: {
     name: '清單',
@@ -32,6 +32,14 @@ var SHEETS = {
 
 var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選', checklist: '清單', settings: '設定' };
 var LOG_KEEP = 300;
+
+/**
+ * 上傳圖片存放的 Google 雲端硬碟資料夾 ID
+ * （打開資料夾後，網址 drive.google.com/drive/folders/ 後面那一段）
+ */
+var UPLOAD_FOLDER_ID = '1Mqg3eG1sAW4KBstuNXrX7SQFJGc8niWL';
+var MAX_IMAGES = { candidates: 1, itinerary: 6 };
+var MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 var ITEM_TYPES = ['itinerary', 'expenses', 'candidates', 'checklist'];
 
@@ -60,6 +68,7 @@ function doGet() {
 /** 第一次使用可在編輯器手動執行，建立工作表 */
 function setup() {
   ensureSheets_();
+  Logger.log('圖片會存到資料夾：' + DriveApp.getFolderById(UPLOAD_FOLDER_ID).getName());
   var fx = getRates_(getSettings_());
   Logger.log('目前匯率（換算成 ' + fx.base + '）：' + JSON.stringify(fx.rates));
 }
@@ -249,6 +258,7 @@ function writeItem_(type, item) {
     item.votes = before ? before.votes : '{}';
     item.createdAt = before ? before.createdAt : item.updatedAt;
   }
+  if (MAX_IMAGES[type]) item.images = JSON.stringify(imageIds_(item.images).slice(0, MAX_IMAGES[type]));
   if (type === 'checklist') {
     // 勾選狀態只能透過 toggleCheck() 修改，編輯內容時保留
     item.done = before ? before.done : '';
@@ -261,6 +271,7 @@ function writeItem_(type, item) {
 /* ---------- 修改紀錄 ---------- */
 
 function addLog_(actor, action, summary, changes) {
+  syncImages_(changes);
   var id = Utilities.getUuid();
   writeRow_('log', 0, {
     id: id, time: new Date().toISOString(), actor: actor, action: action,
@@ -577,4 +588,88 @@ function undo(logId, opts) {
     lock.releaseLock();
   }
   return getData();
+}
+
+/* ---------- 圖片 ---------- */
+
+function imageIds_(value) {
+  var list = value;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list || '[]'); } catch (e) { list = []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.map(String).filter(function (id, i, arr) {
+    return /^[A-Za-z0-9_-]{20,100}$/.test(id) && arr.indexOf(id) === i;
+  });
+}
+
+/** 只處理放在上傳資料夾裡的檔案，避免動到雲端硬碟其他東西 */
+function uploadedFile_(id) {
+  try {
+    var file = DriveApp.getFileById(id);
+    var parents = file.getParents();
+    while (parents.hasNext()) {
+      if (parents.next().getId() === UPLOAD_FOLDER_ID) return file;
+    }
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * 依照一次操作的前後差異整理圖片：不再被使用的移到垃圾桶，重新被使用的（例如復原）從垃圾桶救回。
+ * 圖片處理失敗不影響資料儲存。
+ */
+function syncImages_(changes) {
+  var before = {}, after = {};
+  (changes || []).forEach(function (c) {
+    if (c.type === 'settings') return;
+    if (c.before) imageIds_(c.before.images).forEach(function (id) { before[id] = true; });
+    if (c.after) imageIds_(c.after.images).forEach(function (id) { after[id] = true; });
+  });
+  Object.keys(before).forEach(function (id) {
+    if (after[id]) return;
+    var f = uploadedFile_(id);
+    if (f) try { f.setTrashed(true); } catch (e) {}
+  });
+  Object.keys(after).forEach(function (id) {
+    if (before[id]) return;
+    var f = uploadedFile_(id);
+    if (f) try { if (f.isTrashed()) f.setTrashed(false); } catch (e) {}
+  });
+}
+
+/** 上傳一張圖片（前端已壓縮成 JPEG），回傳檔案 ID */
+function uploadImage(base64, mimeType, opts) {
+  if (!/^image\/(jpeg|png|webp)$/.test(String(mimeType))) throw new Error('只能上傳 JPG、PNG 或 WebP 圖片');
+  var bytes = Utilities.base64Decode(String(base64 || ''));
+  if (!bytes.length) throw new Error('圖片是空的');
+  if (bytes.length > MAX_IMAGE_BYTES) throw new Error('圖片太大了（上限 3MB）');
+  var actor = actorOf_(opts) || '匿名';
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd_HHmmss');
+  var ext = mimeType === 'image/png' ? 'png' : (mimeType === 'image/webp' ? 'webp' : 'jpg');
+  var blob = Utilities.newBlob(bytes, mimeType, stamp + '_' + actor + '.' + ext);
+  var file = DriveApp.getFolderById(UPLOAD_FOLDER_ID).createFile(blob);
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    file.setTrashed(true);
+    throw new Error('無法把圖片設成「知道連結的人可以查看」，可能是帳號的共用限制：' + e.message);
+  }
+  return { id: file.getId() };
+}
+
+/** 表單取消時，把剛上傳但最後沒用到的圖片移到垃圾桶 */
+function discardImages(ids) {
+  ids = imageIds_(ids);
+  if (!ids.length) return true;
+  var used = {};
+  ['candidates', 'itinerary'].forEach(function (type) {
+    readRows_(type).forEach(function (r) { imageIds_(r.images).forEach(function (id) { used[id] = true; }); });
+  });
+  ids.forEach(function (id) {
+    if (used[id]) return;
+    var f = uploadedFile_(id);
+    if (f) try { f.setTrashed(true); } catch (e) {}
+  });
+  return true;
 }
