@@ -24,13 +24,17 @@ var SHEETS = {
     name: '設定',
     headers: ['key', 'value']
   },
+  comments: {
+    name: '留言',
+    headers: ['id', 'targetType', 'targetId', 'text', 'author', 'createdAt', 'updatedAt']
+  },
   log: {
     name: '紀錄',
     headers: ['id', 'time', 'actor', 'action', 'summary', 'changes', 'undoneBy']
   }
 };
 
-var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選', checklist: '清單', settings: '設定' };
+var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選', checklist: '清單', comments: '留言', settings: '設定' };
 var LOG_KEEP = 300;
 
 /**
@@ -41,7 +45,7 @@ var UPLOAD_FOLDER_ID = '1Mqg3eG1sAW4KBstuNXrX7SQFJGc8niWL';
 var MAX_IMAGES = { candidates: 1, itinerary: 6 };
 var MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
-var ITEM_TYPES = ['itinerary', 'expenses', 'candidates', 'checklist'];
+var ITEM_TYPES = ['itinerary', 'expenses', 'candidates', 'checklist', 'comments'];
 
 function checkType_(type) {
   if (ITEM_TYPES.indexOf(type) < 0) throw new Error('未知的類型');
@@ -199,6 +203,7 @@ function getData() {
     expenses: readRows_('expenses'),
     candidates: readRows_('candidates'),
     checklist: readRows_('checklist'),
+    comments: readRows_('comments'),
     serverTime: new Date().toISOString()
   };
 }
@@ -234,6 +239,10 @@ function writeRow_(type, rowIndex, obj) {
 
 function titleOf_(type, obj) {
   if (!obj) return '';
+  if (type === 'comments') {
+    var t = String(obj.text || '').replace(/\s+/g, ' ');
+    return t.length > 20 ? t.slice(0, 20) + '…' : t;
+  }
   return String(obj.title || obj.item || obj.id || '').slice(0, 60);
 }
 
@@ -253,6 +262,12 @@ function writeItem_(type, item) {
   item.updatedAt = new Date().toISOString();
   var rowIndex = findRow_(sheet, item.id);
   var before = rowIndex ? readItem_(type, rowIndex) : null;
+  if (type === 'comments') {
+    if (['itinerary', 'candidates'].indexOf(item.targetType) < 0) throw new Error('留言對象錯誤');
+    item.text = String(item.text || '').trim().slice(0, 500);
+    if (!item.text) throw new Error('留言是空的');
+    item.createdAt = before ? before.createdAt : item.updatedAt;
+  }
   if (type === 'candidates') {
     // 投票只能透過 vote() 修改，編輯內容時保留原本的票與建立時間
     item.votes = before ? before.votes : '{}';
@@ -400,9 +415,22 @@ function scheduleCandidate(candidateId, event, opts) {
     event.id = '';
     var res = writeItem_('itinerary', event);
     sheet.deleteRow(rowIndex);
-    addLog_(actorOf_(opts, event), 'schedule', '把「' + titleOf_('candidates', cand) + '」排入行程',
-      [{ type: 'candidates', id: cand.id, before: cand, after: null },
-       { type: 'itinerary', id: res.after.id, before: null, after: res.after }]);
+    var changes = [{ type: 'candidates', id: cand.id, before: cand, after: null },
+                   { type: 'itinerary', id: res.after.id, before: null, after: res.after }];
+    // 候選底下的留言跟著搬到新的行程
+    var cSheet = sheetOf_('comments');
+    readRows_('comments').forEach(function (cm) {
+      if (cm.targetType !== 'candidates' || cm.targetId !== cand.id) return;
+      var r = findRow_(cSheet, cm.id);
+      var moved = {};
+      Object.keys(cm).forEach(function (k) { moved[k] = cm[k]; });
+      moved.targetType = 'itinerary';
+      moved.targetId = res.after.id;
+      moved.updatedAt = new Date().toISOString();
+      writeRow_('comments', r, moved);
+      changes.push({ type: 'comments', id: cm.id, before: cm, after: readItem_('comments', r) });
+    });
+    addLog_(actorOf_(opts, event), 'schedule', '把「' + titleOf_('candidates', cand) + '」排入行程', changes);
   } finally {
     lock.releaseLock();
   }

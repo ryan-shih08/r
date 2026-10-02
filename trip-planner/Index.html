@@ -212,6 +212,25 @@
   .lb-bar { position: absolute; left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom)); text-align: center; color: #ccc; font-size: 13px; }
   .lb-bar a { color: #fff; margin-left: 12px; }
 
+  /* Comments */
+  .ev-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .ev-foot .ev-meta { margin-top: 0; flex: 1; }
+  .cmt-btn { position: relative; border: 1px solid var(--line); background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 2px 10px; font-size: 12px; margin-left: auto; }
+  .cmt-btn.has { color: var(--text); }
+  .cmt-btn.new::after { content: ""; position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--surface); }
+  .cmts { max-height: 50vh; overflow-y: auto; margin-bottom: 10px; padding: 2px; }
+  .cmt { display: flex; gap: 8px; margin-bottom: 12px; align-items: flex-end; }
+  .cmt.mine { flex-direction: row-reverse; }
+  .cmt-body { max-width: 78%; }
+  .cmt-bubble { background: var(--surface-2); border: 1px solid var(--line); border-radius: 16px 16px 16px 4px; padding: 8px 12px; white-space: pre-wrap; word-break: break-word; }
+  .cmt.mine .cmt-bubble { background: var(--accent-soft); border-color: transparent; border-radius: 16px 16px 4px 16px; }
+  .cmt-meta { font-size: 11px; color: var(--muted); margin: 2px 4px 0; }
+  .cmt.mine .cmt-meta { text-align: right; }
+  .cmt-meta button { border: 0; background: none; color: var(--muted); font-size: 11px; padding: 0 0 0 6px; text-decoration: underline; }
+  .cmt-form { display: flex; gap: 8px; align-items: flex-end; }
+  .cmt-form textarea { flex: 1; border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 10px 12px; resize: none; min-height: 44px; outline: none; }
+  .cmt-form textarea:focus { border-color: var(--accent); }
+
   /* History */
   .hist { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .hist:last-child { border-bottom: 0; }
@@ -368,7 +387,7 @@
   var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
   var POLL_MS = 30000;
 
-  var state = { settings: {}, itinerary: [], expenses: [], candidates: [], checklist: [], listView: 'pack', listMine: false, candFilter: 'all', tab: 'itinerary', modalOpen: false, busy: false };
+  var state = { settings: {}, itinerary: [], expenses: [], candidates: [], checklist: [], comments: [], listView: 'pack', listMine: false, candFilter: 'all', tab: 'itinerary', modalOpen: false, busy: false };
 
   /* ---------- 後端呼叫（在 Apps Script 內用 google.script.run；本機預覽用 localStorage 模擬） ---------- */
   var api = (typeof google !== 'undefined' && google.script && google.script.run) ? remoteApi() : mockApi();
@@ -397,10 +416,10 @@
       } catch (e) {}
       return {
         settings: { tripName: '我們的旅行（本機預覽）', startDate: '', endDate: '', members: '成員A,成員B,成員C,成員D', currency: 'TWD', extraCurrencies: 'THB' },
-        itinerary: [], expenses: [], candidates: [], checklist: []
+        itinerary: [], expenses: [], candidates: [], checklist: [], comments: []
       };
     }
-    function loadFull() { var d = load(); d.candidates = d.candidates || []; d.checklist = d.checklist || []; return d; }
+    function loadFull() { var d = load(); d.candidates = d.candidates || []; d.checklist = d.checklist || []; d.comments = d.comments || []; return d; }
     function prepare(d, type, item) {
       item.id = item.id || ('m' + Date.now() + Math.random().toString(16).slice(2, 6));
       item.updatedAt = new Date().toISOString();
@@ -409,6 +428,7 @@
         item.votes = old ? old.votes : '{}';
         item.createdAt = old ? old.createdAt : item.updatedAt;
       }
+      if (type === 'comments') item.createdAt = old ? old.createdAt : item.updatedAt;
       if (type === 'checklist') {
         item.done = old ? old.done : '';
         item.checkedBy = old ? old.checkedBy : '[]';
@@ -454,6 +474,9 @@
         ev.id = 'm' + Date.now(); ev.updatedAt = new Date().toISOString();
         d.itinerary.push(ev);
         d.candidates = d.candidates.filter(function (x) { return x.id !== id; });
+        d.comments.forEach(function (c) {
+          if (c.targetType === 'candidates' && c.targetId === id) { c.targetType = 'itinerary'; c.targetId = ev.id; }
+        });
         save(d); return snapshot(d);
       },
       addItems: function (type, items) {
@@ -622,6 +645,84 @@
     };
   }
 
+  /* ---------- 留言 ---------- */
+  function commentsFor(type, id) {
+    return state.comments.filter(function (c) { return c.targetType === type && c.targetId === id; })
+      .sort(function (a, b) { return (a.createdAt || '').localeCompare(b.createdAt || ''); });
+  }
+  function seenMap() { try { return JSON.parse(localStorage.getItem('trip-seen') || '{}') || {}; } catch (e) { return {}; } }
+  function markSeen(type, id) {
+    var list = commentsFor(type, id);
+    if (!list.length) return;
+    var m = seenMap();
+    m[type + '|' + id] = list[list.length - 1].createdAt;
+    try { localStorage.setItem('trip-seen', JSON.stringify(m)); } catch (e) {}
+  }
+  function commentButton(type, id) {
+    var list = commentsFor(type, id), me = getMe(), seen = seenMap()[type + '|' + id] || '';
+    var unread = list.some(function (c) { return c.author !== me && (c.createdAt || '') > seen; });
+    return '<button type="button" class="cmt-btn' + (list.length ? ' has' : '') + (unread ? ' new' : '') + '" data-comments="' + type + '|' + esc(id) + '">' +
+      '💬 ' + (list.length ? list.length : '留言') + '</button>';
+  }
+
+  function openComments(type, id) {
+    var src = type === 'candidates' ? state.candidates : state.itinerary;
+    var item = src.find(function (x) { return x.id === id; });
+    if (!item) return;
+    var timer = null;
+    openModal('<h3>💬 ' + esc(item.title) + '</h3>' +
+      '<div class="cmts" id="cmtList"></div>' +
+      '<form class="cmt-form" id="cmtForm"><textarea name="text" rows="1" maxlength="500" placeholder="' + (getMe() ? '寫點什麼…' : '先在上方「我是」選你的名字') + '"></textarea>' +
+      '<button class="btn primary" type="submit">送出</button></form>' +
+      '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">關閉</button></div>',
+      function (root) {
+        var box = $('#cmtList', root), f = $('#cmtForm', root);
+        function draw() {
+          var me = getMe(), list = commentsFor(type, id);
+          var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+          box.innerHTML = list.length ? list.map(function (c) {
+            var mine = c.author && c.author === me;
+            return '<div class="cmt' + (mine ? ' mine' : '') + '">' + (mine ? '' : '<span class="avatar">' + initial(c.author || '?') + '</span>') +
+              '<div class="cmt-body"><div class="cmt-bubble">' + esc(c.text) + '</div>' +
+              '<div class="cmt-meta">' + (mine ? '' : esc(c.author || '（沒選名字）') + '・') + esc(fmtDateTime(c.createdAt)) +
+              (mine ? '<button type="button" data-del-cmt="' + esc(c.id) + '">刪除</button>' : '') + '</div></div></div>';
+          }).join('') : '<div class="help" style="text-align:center;padding:24px 0">還沒有留言，來開個頭吧</div>';
+          if (atBottom || !draw.done) box.scrollTop = box.scrollHeight;
+          draw.done = true;
+          markSeen(type, id);
+          render();
+        }
+        function sync() { return api.getData().then(function (d) { applyData(d); draw(); }).catch(function () {}); }
+        $('#cancelBtn', root).onclick = closeModal;
+        box.addEventListener('click', function (e) {
+          var del = e.target.closest('[data-del-cmt]');
+          if (!del) return;
+          var c = state.comments.find(function (x) { return x.id === del.dataset.delCmt; });
+          if (!c || !confirm('確定要刪除這則留言？')) return;
+          mutate(api.deleteItem('comments', c.id, opts(c)), '已刪除').then(draw, draw);
+        });
+        f.text.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); f.requestSubmit(); }
+        });
+        f.text.addEventListener('input', function () { f.text.style.height = 'auto'; f.text.style.height = Math.min(f.text.scrollHeight, 140) + 'px'; });
+        f.onsubmit = function (e) {
+          e.preventDefault();
+          var text = f.text.value.trim();
+          if (!text) return;
+          if (!getMe()) { toast('請先在上方「我是」選你的名字'); return; }
+          disableForm(f);
+          mutate(api.saveItem('comments', { targetType: type, targetId: id, text: text, author: getMe() }, opts(null)))
+            .then(function () { f.text.value = ''; f.text.style.height = ''; enableForm(f); draw(); box.scrollTop = box.scrollHeight; },
+              function () { enableForm(f); });
+        };
+        draw();
+        sync();
+        // 開著留言時，每 15 秒抓一次別人的新留言
+        timer = setInterval(function () { if (!document.hidden && !state.busy) sync(); }, 15000);
+        state.onModalClose = function () { clearInterval(timer); render(); };
+      });
+  }
+
   function openViewer(type, id, idx) {
     var list = type === 'candidates' ? state.candidates : state.itinerary;
     var it = list.find(function (x) { return x.id === id; });
@@ -679,6 +780,7 @@
     state.expenses = d.expenses || [];
     state.candidates = d.candidates || [];
     state.checklist = d.checklist || [];
+    state.comments = d.comments || [];
     state.fx = d.fx || { base: state.settings.currency || 'TWD', rates: {} };
     var now = new Date();
     $('#syncText').textContent = '已同步 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
@@ -859,7 +961,8 @@
         (parseImages(it).length ? '<div class="ev-imgs">' + parseImages(it).map(function (fid, n) {
           return '<div class="thumb" data-view="itinerary|' + esc(it.id) + '|' + n + '">' + imgTag(fid, 200) + '</div>';
         }).join('') + '</div>' : '') +
-        (it.author ? '<div class="ev-meta">由 ' + esc(it.author) + ' 更新</div>' : '') +
+        '<div class="ev-foot">' + (it.author ? '<span class="ev-meta">由 ' + esc(it.author) + ' 更新</span>' : '') +
+          commentButton('itinerary', it.id) + '</div>' +
       '</div></div>';
   }
 
@@ -912,7 +1015,7 @@
           '<button type="button" class="vote up' + (v.mine > 0 ? ' on' : '') + '" data-vote="1" data-cid="' + esc(c.id) + '">👍 ' + v.up.length + '</button>' +
           '<button type="button" class="vote down' + (v.mine < 0 ? ' on' : '') + '" data-vote="-1" data-cid="' + esc(c.id) + '">👎 ' + v.down.length + '</button>' +
           '<span class="voters">' + voters + '</span>' +
-          '<span class="cand-actions"><button type="button" class="mini" data-edit-cand="' + esc(c.id) + '">編輯</button>' +
+          '<span class="cand-actions">' + commentButton('candidates', c.id) + '<button type="button" class="mini" data-edit-cand="' + esc(c.id) + '">編輯</button>' +
           '<button type="button" class="mini go" data-schedule="' + esc(c.id) + '">排入行程 →</button></span>' +
         '</div></div>';
     }).join('');
@@ -1252,6 +1355,7 @@
         '・行程可先標成「待確認」（虛線框），決定後再改成「已確定」。<br>' +
         '・「清單」分成行李和待辦：「每人都要帶」的行李各自勾選；共用物品和待辦可以指定負責人。<br>' +
         '・每天標題旁的「🗺️ 路線」會依時間順序在 Google 地圖打開當天路線（最多 10 個地點）。<br>' +
+        '・行程和候選卡片上的「💬」可以留言討論，有新留言會出現紅點。<br>' +
         '・上方「🕘 紀錄」可以看到誰改了什麼，改錯了可以按「復原」。兩個人同時改同一筆時，後儲存的人會收到提醒。<br>' +
         '・頁面每 30 秒自動同步，也可以按「重新整理」立刻看到別人的修改。<br>' +
         '・所有資料都存在背後的 Google 試算表，可以直接打開查看或備份。</div></div>';
@@ -1324,8 +1428,18 @@
         };
         if (!data.title) return;
         disableForm(f);
+        var movedIds = fromCandidate ? commentsFor('candidates', fromCandidate.id).map(function (c) { return c.id; }) : [];
+        var seenBefore = fromCandidate ? seenMap()['candidates|' + fromCandidate.id] : '';
         var done = fromCandidate
-          ? mutate(api.scheduleCandidate(fromCandidate.id, data, opts(null)), '已排入行程 🎉')
+          ? mutate(api.scheduleCandidate(fromCandidate.id, data, opts(null)), '已排入行程 🎉').then(function () {
+              // 留言跟著搬到新行程，已讀狀態也一起帶過去
+              var moved = state.comments.find(function (c) { return movedIds.indexOf(c.id) >= 0; });
+              if (moved && seenBefore) {
+                var m = seenMap(); m['itinerary|' + moved.targetId] = seenBefore;
+                try { localStorage.setItem('trip-seen', JSON.stringify(m)); } catch (err) {}
+                render();
+              }
+            })
           : guarded(function (force) { return api.saveItem('itinerary', data, opts(item, force)); }, '已儲存');
         done.then(function () { photos.commit(); closeModal(); }, function () { enableForm(f); });
       };
@@ -1438,7 +1552,7 @@
   var FIELD_LABELS = {
     date: '日期', time: '開始時間', endTime: '結束時間', title: '名稱', category: '類型', location: '地點', note: '備註',
     status: '狀態', item: '項目', amount: '金額', payer: '付款人', splitAmong: '分攤的人', currency: '幣別', rate: '匯率',
-    link: '連結', images: '照片', scope: '行李類型', owner: '負責人', dueDate: '期限',
+    link: '連結', images: '照片', text: '留言內容', scope: '行李類型', owner: '負責人', dueDate: '期限',
     tripName: '旅行名稱', startDate: '出發日', endDate: '回程日', members: '成員', extraCurrencies: '外幣'
   };
   var IGNORE_FIELDS = ['id', 'updatedAt', 'createdAt', 'author', 'votes', 'checkedBy', 'done', 'kind'];
@@ -1540,6 +1654,12 @@
     }
   });
   document.addEventListener('click', function (e) {
+    var cb = e.target.closest('[data-comments]');
+    if (cb) {
+      var cp = cb.dataset.comments.split('|');
+      openComments(cp[0], cp[1]);
+      return;
+    }
     var vw = e.target.closest('[data-view]');
     if (vw) {
       var parts = vw.dataset.view.split('|');
