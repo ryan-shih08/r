@@ -12,11 +12,21 @@ var SHEETS = {
     name: '分攤',
     headers: ['id', 'date', 'item', 'amount', 'payer', 'splitAmong', 'note', 'author', 'updatedAt']
   },
+  candidates: {
+    name: '候選',
+    headers: ['id', 'title', 'category', 'location', 'link', 'note', 'votes', 'author', 'createdAt', 'updatedAt']
+  },
   settings: {
     name: '設定',
     headers: ['key', 'value']
   }
 };
+
+var ITEM_TYPES = ['itinerary', 'expenses', 'candidates'];
+
+function checkType_(type) {
+  if (ITEM_TYPES.indexOf(type) < 0) throw new Error('未知的類型');
+}
 
 var DEFAULT_SETTINGS = {
   tripName: '我們的旅行',
@@ -86,46 +96,105 @@ function getData() {
     settings: getSettings_(),
     itinerary: readRows_('itinerary'),
     expenses: readRows_('expenses'),
+    candidates: readRows_('candidates'),
     serverTime: new Date().toISOString()
   };
 }
 
-/** 新增或更新一筆（type: itinerary | expenses） */
+/** 新增或更新一筆（type: itinerary | expenses | candidates） */
 function saveItem(type, item) {
-  if (type !== 'itinerary' && type !== 'expenses') throw new Error('未知的類型');
-  var def = SHEETS[type];
+  checkType_(type);
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     ensureSheets_();
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
-    item.id = item.id || Utilities.getUuid();
-    item.updatedAt = new Date().toISOString();
-    var row = def.headers.map(function (h) {
-      var v = item[h] == null ? '' : String(item[h]);
-      return v.slice(0, 2000);
-    });
-    var rowIndex = findRow_(sheet, item.id);
-    if (rowIndex) {
-      sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
-    } else {
-      var next = sheet.getLastRow() + 1;
-      sheet.getRange(next, 1, 1, row.length).setNumberFormat('@').setValues([row]);
-    }
+    writeItem_(type, item);
   } finally {
     lock.releaseLock();
   }
   return getData();
 }
 
+function writeItem_(type, item) {
+  var def = SHEETS[type];
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
+  item.id = item.id || Utilities.getUuid();
+  item.updatedAt = new Date().toISOString();
+  var rowIndex = findRow_(sheet, item.id);
+  if (type === 'candidates') {
+    // 投票只能透過 vote() 修改，編輯內容時保留原本的票與建立時間
+    if (rowIndex) {
+      var old = sheet.getRange(rowIndex, 1, 1, def.headers.length).getDisplayValues()[0];
+      item.votes = old[def.headers.indexOf('votes')];
+      item.createdAt = old[def.headers.indexOf('createdAt')];
+    } else {
+      item.votes = '{}';
+      item.createdAt = item.updatedAt;
+    }
+  }
+  var row = def.headers.map(function (h) {
+    var v = item[h] == null ? '' : String(item[h]);
+    return v.slice(0, 2000);
+  });
+  if (rowIndex) {
+    sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+  } else {
+    var next = sheet.getLastRow() + 1;
+    sheet.getRange(next, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+  }
+}
+
 function deleteItem(type, id) {
-  if (type !== 'itinerary' && type !== 'expenses') throw new Error('未知的類型');
+  checkType_(type);
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS[type].name);
     var rowIndex = findRow_(sheet, id);
     if (rowIndex) sheet.deleteRow(rowIndex);
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
+
+/** 候選投票：value 為 1（讚）、-1（倒讚）或 0（取消） */
+function vote(id, name, value) {
+  name = String(name || '').trim().slice(0, 50);
+  if (!name) throw new Error('請先選擇你的名字');
+  value = Number(value);
+  if ([1, -1, 0].indexOf(value) < 0) throw new Error('投票值錯誤');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensureSheets_();
+    var def = SHEETS.candidates;
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(def.name);
+    var rowIndex = findRow_(sheet, id);
+    if (!rowIndex) throw new Error('這個候選項目已被刪除或排入行程');
+    var col = def.headers.indexOf('votes') + 1;
+    var votes = {};
+    try { votes = JSON.parse(sheet.getRange(rowIndex, col).getDisplayValue() || '{}') || {}; } catch (e) {}
+    if (value === 0) delete votes[name]; else votes[name] = value;
+    sheet.getRange(rowIndex, col).setValue(JSON.stringify(votes));
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
+
+/** 把候選項目排入行程：新增一筆行程並移除該候選 */
+function scheduleCandidate(candidateId, event) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensureSheets_();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.candidates.name);
+    var rowIndex = findRow_(sheet, candidateId);
+    if (!rowIndex) throw new Error('這個候選項目已被刪除或排入行程');
+    event.id = '';
+    writeItem_('itinerary', event);
+    sheet.deleteRow(rowIndex);
   } finally {
     lock.releaseLock();
   }

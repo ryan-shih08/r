@@ -54,7 +54,7 @@
     font-size: 15px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+    padding-bottom: calc(150px + env(safe-area-inset-bottom));
   }
   button, input, select, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
@@ -138,6 +138,26 @@
     text-align: center; color: var(--muted); padding: 40px 16px; background: var(--surface);
     border-radius: var(--radius); border: 1px dashed var(--line);
   }
+
+  .day-route { background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 999px; padding: 2px 10px; font-size: 13px; font-weight: 600; text-decoration: none; }
+
+  /* Candidates */
+  .filters { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .filters button { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+  .filters button.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+  .cand { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px 14px; margin-bottom: 10px; border-left: 4px solid var(--cat, var(--c-other)); }
+  .cand-rank { font-size: 12px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+  .cand-link { margin-top: 4px; font-size: 13px; }
+  .cand-link a { color: var(--muted); }
+  .cand-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .vote { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 4px 12px; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .vote.up.on { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); font-weight: 700; }
+  .vote.down.on { background: #fbe3e1; border-color: var(--danger); color: var(--danger); font-weight: 700; }
+  .voters { font-size: 12px; color: var(--muted); flex: 1; min-width: 80px; }
+  .cand-actions { display: flex; gap: 6px; margin-left: auto; }
+  .mini { border: 0; background: none; color: var(--muted); font-size: 13px; padding: 4px 6px; }
+  .mini.go { background: var(--accent); color: #fff; border-radius: 999px; padding: 4px 12px; font-weight: 600; }
 
   /* Expenses */
   .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
@@ -246,6 +266,7 @@
   <main class="main">
     <div id="loading" class="loading">資料載入中…</div>
     <section id="view-itinerary" class="hidden"></section>
+    <section id="view-candidates" class="hidden"></section>
     <section id="view-expenses" class="hidden"></section>
     <section id="view-settings" class="hidden"></section>
   </main>
@@ -255,6 +276,7 @@
   <nav class="tabs">
     <div class="tabs-inner">
       <button class="tab active" data-tab="itinerary" type="button"><span class="ic">🗓️</span>行程</button>
+      <button class="tab" data-tab="candidates" type="button"><span class="ic">📌</span>候選</button>
       <button class="tab" data-tab="expenses" type="button"><span class="ic">💰</span>分攤</button>
       <button class="tab" data-tab="settings" type="button"><span class="ic">⚙️</span>設定</button>
     </div>
@@ -277,7 +299,7 @@
   var WEEK = ['日', '一', '二', '三', '四', '五', '六'];
   var POLL_MS = 30000;
 
-  var state = { settings: {}, itinerary: [], expenses: [], tab: 'itinerary', modalOpen: false, busy: false };
+  var state = { settings: {}, itinerary: [], expenses: [], candidates: [], candFilter: 'all', tab: 'itinerary', modalOpen: false, busy: false };
 
   /* ---------- 後端呼叫（在 Apps Script 內用 google.script.run；本機預覽用 localStorage 模擬） ---------- */
   var api = (typeof google !== 'undefined' && google.script && google.script.run) ? remoteApi() : mockApi();
@@ -293,7 +315,9 @@
       getData: function () { return call('getData', []); },
       saveItem: function (t, i) { return call('saveItem', [t, i]); },
       deleteItem: function (t, id) { return call('deleteItem', [t, id]); },
-      saveSettings: function (s) { return call('saveSettings', [s]); }
+      saveSettings: function (s) { return call('saveSettings', [s]); },
+      vote: function (id, name, v) { return call('vote', [id, name, v]); },
+      scheduleCandidate: function (id, ev) { return call('scheduleCandidate', [id, ev]); }
     };
   }
 
@@ -306,29 +330,51 @@
       } catch (e) {}
       return {
         settings: { tripName: '我們的旅行（本機預覽）', startDate: '', endDate: '', members: '成員A,成員B,成員C,成員D', currency: 'TWD' },
-        itinerary: [], expenses: []
+        itinerary: [], expenses: [], candidates: []
       };
     }
+    function loadFull() { var d = load(); d.candidates = d.candidates || []; return d; }
     function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
     function snapshot(d) { d.serverTime = new Date().toISOString(); return Promise.resolve(JSON.parse(JSON.stringify(d))); }
     return {
-      getData: function () { return snapshot(load()); },
+      getData: function () { return snapshot(loadFull()); },
       saveItem: function (type, item) {
-        var d = load();
+        var d = loadFull();
         item.id = item.id || ('m' + Date.now() + Math.random().toString(16).slice(2, 6));
         item.updatedAt = new Date().toISOString();
         var i = d[type].findIndex(function (x) { return x.id === item.id; });
+        if (type === 'candidates') {
+          var old = d.candidates.find(function (x) { return x.id === item.id; });
+          item.votes = old ? old.votes : '{}';
+          item.createdAt = old ? old.createdAt : item.updatedAt;
+        }
         if (i >= 0) d[type][i] = item; else d[type].push(item);
         save(d); return snapshot(d);
       },
       deleteItem: function (type, id) {
-        var d = load();
+        var d = loadFull();
         d[type] = d[type].filter(function (x) { return x.id !== id; });
         save(d); return snapshot(d);
       },
       saveSettings: function (s) {
-        var d = load();
+        var d = loadFull();
         Object.keys(s).forEach(function (k) { d.settings[k] = String(s[k]); });
+        save(d); return snapshot(d);
+      },
+      vote: function (id, name, v) {
+        var d = loadFull();
+        var c = d.candidates.find(function (x) { return x.id === id; });
+        if (!c) return Promise.reject(new Error('這個候選項目已被刪除或排入行程'));
+        var votes = JSON.parse(c.votes || '{}');
+        if (v === 0) delete votes[name]; else votes[name] = v;
+        c.votes = JSON.stringify(votes);
+        save(d); return snapshot(d);
+      },
+      scheduleCandidate: function (id, ev) {
+        var d = loadFull();
+        ev.id = 'm' + Date.now(); ev.updatedAt = new Date().toISOString();
+        d.itinerary.push(ev);
+        d.candidates = d.candidates.filter(function (x) { return x.id !== id; });
         save(d); return snapshot(d);
       }
     };
@@ -374,6 +420,7 @@
     state.settings = d.settings || {};
     state.itinerary = d.itinerary || [];
     state.expenses = d.expenses || [];
+    state.candidates = d.candidates || [];
     var now = new Date();
     $('#syncText').textContent = '已同步 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
     $('#loading').classList.add('hidden');
@@ -423,12 +470,13 @@
     }).join('');
 
     document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === state.tab); });
-    ['itinerary', 'expenses', 'settings'].forEach(function (t) {
+    ['itinerary', 'candidates', 'expenses', 'settings'].forEach(function (t) {
       $('#view-' + t).classList.toggle('hidden', t !== state.tab);
     });
     $('#fab').classList.toggle('hidden', state.tab === 'settings');
 
     if (state.tab === 'itinerary') renderItinerary();
+    if (state.tab === 'candidates') renderCandidates();
     if (state.tab === 'expenses') renderExpenses();
     if (state.tab === 'settings') renderSettings();
   }
@@ -464,6 +512,7 @@
         (dayNo ? '<span class="day-badge">' + dayNo + '</span>' : '') +
         '<span class="day-date">' + (k ? esc(fmtShort(k)) : '日期未定') + '</span>' +
         '<span class="day-count">' + items.length + ' 項</span>' +
+        routeLink(items) +
         '<button class="day-add" type="button" data-add-date="' + esc(k) + '">＋</button></div>';
       if (items.length) {
         html += '<div class="tl">' + items.map(renderEvent).join('') + '</div>';
@@ -471,6 +520,25 @@
       html += '</div>';
     });
     $('#view-itinerary').innerHTML = html;
+  }
+
+  /* 單日路線：把當天有地點的行程依時間串成 Google 地圖路線 */
+  var MAX_ROUTE_STOPS = 10;
+  function routeLink(items) {
+    var stops = items.map(function (it) { return String(it.location || '').trim(); }).filter(Boolean)
+      .filter(function (loc, i, arr) { return i === 0 || loc !== arr[i - 1]; });
+    if (!stops.length) return '';
+    var url;
+    if (stops.length === 1) {
+      url = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(stops[0]);
+    } else {
+      stops = stops.slice(0, MAX_ROUTE_STOPS);
+      url = 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(stops[0]) +
+        '&destination=' + encodeURIComponent(stops[stops.length - 1]) +
+        (stops.length > 2 ? '&waypoints=' + encodeURIComponent(stops.slice(1, -1).join('|')) : '');
+    }
+    return '<a class="day-route" href="' + esc(url) + '" target="_blank" rel="noopener" title="依時間順序在 Google 地圖開啟當天路線">🗺️ ' +
+      (stops.length > 1 ? '路線' : '地圖') + '</a>';
   }
 
   function renderEvent(it) {
@@ -488,6 +556,111 @@
         (it.note ? '<div class="ev-note">' + esc(it.note) + '</div>' : '') +
         (it.author ? '<div class="ev-meta">由 ' + esc(it.author) + ' 更新</div>' : '') +
       '</div></div>';
+  }
+
+  function parseVotes(c) {
+    try { return JSON.parse(c.votes || '{}') || {}; } catch (e) { return {}; }
+  }
+  function voteSummary(c) {
+    var v = parseVotes(c), up = [], down = [];
+    Object.keys(v).forEach(function (n) { if (v[n] > 0) up.push(n); else if (v[n] < 0) down.push(n); });
+    return { up: up, down: down, score: up.length - down.length, mine: v[getMe()] || 0 };
+  }
+
+  function renderCandidates() {
+    var cats = [{ key: 'all', label: '全部', icon: '' }].concat(CATEGORIES);
+    var list = state.candidates.filter(function (c) {
+      return state.candFilter === 'all' || (c.category || 'other') === state.candFilter;
+    }).map(function (c) { return { c: c, v: voteSummary(c) }; });
+    list.sort(function (a, b) {
+      return b.v.score - a.v.score || b.v.up.length - a.v.up.length || (a.c.createdAt || '').localeCompare(b.c.createdAt || '');
+    });
+
+    var html = '<div class="section-title"><h2>候選清單</h2><span class="hint">投票決定要不要去</span></div>';
+    html += '<div class="filters" id="candFilters">' + cats.map(function (c) {
+      var n = c.key === 'all' ? state.candidates.length : state.candidates.filter(function (x) { return (x.category || 'other') === c.key; }).length;
+      return '<button type="button" data-filter="' + c.key + '" class="' + (state.candFilter === c.key ? 'on' : '') + '">' +
+        (c.icon ? c.icon + ' ' : '') + c.label + ' ' + n + '</button>';
+    }).join('') + '</div>';
+
+    if (!getMe()) html += '<div class="card help" style="margin-bottom:12px">👆 先在上方「我是」選你的名字，才能投票</div>';
+
+    if (!list.length) {
+      html += '<div class="empty">' + (state.candidates.length ? '這個分類還沒有候選' : '還沒有候選項目<br>想去的景點、餐廳先丟進來，大家投票後再排進行程') + '</div>';
+    }
+    html += list.map(function (x, idx) {
+      var c = x.c, v = x.v, cat = catOf(c.category);
+      var loc = c.location ? '<div class="ev-loc">📍 <a href="https://www.google.com/maps/search/?api=1&query=' +
+        encodeURIComponent(c.location) + '" target="_blank" rel="noopener">' + esc(c.location) + '</a></div>' : '';
+      var link = /^https?:\/\//i.test(c.link || '') ? '<div class="cand-link">🔗 <a href="' + esc(c.link) + '" target="_blank" rel="noopener">參考連結</a></div>' : '';
+      var voters = (v.up.length ? '👍 ' + v.up.map(esc).join('、') : '') + (v.up.length && v.down.length ? '　' : '') +
+        (v.down.length ? '👎 ' + v.down.map(esc).join('、') : '');
+      return '<div class="cand" style="--cat:' + cat.color + '">' +
+        '<div class="ev-top"><div class="ev-title">' + (state.candFilter === 'all' && v.score > 0 && idx < 3 ? '<span class="cand-rank">#' + (idx + 1) + '</span>' : '') +
+        cat.icon + ' ' + esc(c.title) + '</div><span class="chip cat">' + cat.label + '</span></div>' +
+        loc + link +
+        (c.note ? '<div class="ev-note">' + esc(c.note) + '</div>' : '') +
+        (c.author ? '<div class="ev-meta">' + esc(c.author) + ' 提議</div>' : '') +
+        '<div class="cand-foot">' +
+          '<button type="button" class="vote up' + (v.mine > 0 ? ' on' : '') + '" data-vote="1" data-cid="' + esc(c.id) + '">👍 ' + v.up.length + '</button>' +
+          '<button type="button" class="vote down' + (v.mine < 0 ? ' on' : '') + '" data-vote="-1" data-cid="' + esc(c.id) + '">👎 ' + v.down.length + '</button>' +
+          '<span class="voters">' + voters + '</span>' +
+          '<span class="cand-actions"><button type="button" class="mini" data-edit-cand="' + esc(c.id) + '">編輯</button>' +
+          '<button type="button" class="mini go" data-schedule="' + esc(c.id) + '">排入行程 →</button></span>' +
+        '</div></div>';
+    }).join('');
+    $('#view-candidates').innerHTML = html;
+  }
+
+  function openCandidateForm(item) {
+    var c = item || { category: 'sight' };
+    var html = '<h3>' + (item ? '編輯候選' : '新增候選') + '</h3><form id="candForm">' +
+      '<div class="field"><label>名稱 *</label><input name="title" required maxlength="100" value="' + esc(c.title) + '" placeholder="例如：teamLab、築地市場、某間燒肉"></div>' +
+      '<div class="field"><label>類型</label><div class="seg" id="candCat">' + CATEGORIES.map(function (x) {
+        return '<button type="button" data-cat="' + x.key + '" class="' + (x.key === (c.category || 'sight') ? 'on' : '') + '">' + x.icon + ' ' + x.label + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="field"><label>地點</label><input name="location" maxlength="200" value="' + esc(c.location) + '" placeholder="會自動連到 Google 地圖"></div>' +
+      '<div class="field"><label>參考連結</label><input name="link" type="url" maxlength="500" value="' + esc(c.link) + '" placeholder="https://… 網誌、官網、IG"></div>' +
+      '<div class="field"><label>為什麼想去？</label><textarea name="note" maxlength="1000" placeholder="特色、價位、營業時間…">' + esc(c.note) + '</textarea></div>' +
+      '<div class="sheet-actions">' + (item ? '<button type="button" class="btn danger" id="delBtn">刪除</button>' : '') +
+      '<span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button>' +
+      '<button type="submit" class="btn primary">儲存</button></div></form>';
+    openModal(html, function (root) {
+      var cat = c.category || 'sight';
+      bindSeg($('#candCat', root), 'cat', function (v) { cat = v; });
+      $('#cancelBtn', root).onclick = closeModal;
+      if (item) $('#delBtn', root).onclick = function () {
+        if (!confirm('確定要刪除「' + item.title + '」？')) return;
+        closeModal();
+        mutate(api.deleteItem('candidates', item.id), '已刪除');
+      };
+      $('#candForm', root).onsubmit = function (e) {
+        e.preventDefault();
+        var f = e.target;
+        var data = {
+          id: item ? item.id : '', title: f.title.value.trim(), category: cat, location: f.location.value.trim(),
+          link: f.link.value.trim(), note: f.note.value.trim(), author: item ? item.author : getMe()
+        };
+        if (!data.title) return;
+        disableForm(f);
+        mutate(api.saveItem('candidates', data), '已加入候選').then(closeModal, function () { enableForm(f); });
+      };
+    });
+  }
+
+  function castVote(id, value) {
+    var me = getMe();
+    if (!me) { toast('請先在上方「我是」選你的名字'); return; }
+    var c = state.candidates.find(function (x) { return x.id === id; });
+    if (!c) return;
+    var current = parseVotes(c)[me] || 0;
+    var next = current === value ? 0 : value;
+    // 先在畫面上更新，讓按鈕即時反應
+    var v = parseVotes(c);
+    if (next === 0) delete v[me]; else v[me] = next;
+    c.votes = JSON.stringify(v);
+    renderCandidates();
+    mutate(api.vote(id, me, next)).catch(function () { refresh(true); });
   }
 
   function computeBalances() {
@@ -581,7 +754,9 @@
       '</form>' +
       '<div class="card"><h3>💡 使用說明</h3><div class="help" style="font-size:13px;line-height:1.7">' +
         '・上方「我是」選你的名字，新增的項目會標上你的名字，記帳時預設由你付款。<br>' +
+        '・還沒決定的景點、餐廳先放「候選」，大家投票後按「排入行程」選日期。<br>' +
         '・行程可先標成「待確認」（虛線框），決定後再改成「已確定」。<br>' +
+        '・每天標題旁的「🗺️ 路線」會依時間順序在 Google 地圖打開當天路線（最多 10 個地點）。<br>' +
         '・頁面每 30 秒自動同步，也可以按「重新整理」立刻看到別人的修改。<br>' +
         '・所有資料都存在背後的 Google 試算表，可以直接打開查看或備份。</div></div>';
   }
@@ -602,9 +777,16 @@
     $('#modalRoot').innerHTML = '';
   }
 
-  function openEventForm(item, presetDate) {
+  function openEventForm(item, presetDate, fromCandidate) {
     var it = item || { date: presetDate != null ? presetDate : (state.settings.startDate || ''), category: 'sight', status: 'tentative' };
-    var html = '<h3>' + (item ? '編輯行程' : '新增行程') + '</h3><form id="evForm">' +
+    if (fromCandidate) {
+      var fc = fromCandidate;
+      it = { date: state.settings.startDate || '', category: fc.category || 'sight', status: 'confirmed',
+        title: fc.title, location: fc.location, note: [fc.note, fc.link].filter(Boolean).join('\n') };
+    }
+    var html = '<h3>' + (item ? '編輯行程' : (fromCandidate ? '排入行程' : '新增行程')) + '</h3>' +
+      (fromCandidate ? '<div class="help" style="margin:-8px 0 12px">選好日期與時間後儲存，會從候選清單移到行程裡。</div>' : '') +
+      '<form id="evForm">' +
       '<div class="field"><label>標題 *</label><input name="title" required maxlength="100" value="' + esc(it.title) + '" placeholder="例如：淺草寺、搭新幹線到京都"></div>' +
       '<div class="field"><label>類型</label><div class="seg" id="catSeg">' + CATEGORIES.map(function (c) {
         return '<button type="button" data-cat="' + c.key + '" class="' + (c.key === (it.category || 'sight') ? 'on' : '') + '">' + c.icon + ' ' + c.label + '</button>';
@@ -641,7 +823,8 @@
         };
         if (!data.title) return;
         disableForm(f);
-        mutate(api.saveItem('itinerary', data), '已儲存').then(closeModal, function () { enableForm(f); });
+        var req = fromCandidate ? api.scheduleCandidate(fromCandidate.id, data) : api.saveItem('itinerary', data);
+        mutate(req, fromCandidate ? '已排入行程 🎉' : '已儲存').then(closeModal, function () { enableForm(f); });
       };
     });
   }
@@ -726,6 +909,7 @@
   $('#meSelect').addEventListener('change', function (e) { setMe(e.target.value); render(); });
   $('#fab').addEventListener('click', function () {
     if (state.tab === 'itinerary') openEventForm(null);
+    else if (state.tab === 'candidates') openCandidateForm(null);
     else if (state.tab === 'expenses') {
       if (!members().length) { toast('請先到「設定」填寫成員'); return; }
       openExpenseForm(null);
@@ -746,7 +930,23 @@
       return;
     }
     var add = e.target.closest('[data-add-date]');
-    if (add) openEventForm(null, add.dataset.addDate);
+    if (add) { openEventForm(null, add.dataset.addDate); return; }
+    var vb = e.target.closest('[data-vote]');
+    if (vb) { castVote(vb.dataset.cid, Number(vb.dataset.vote)); return; }
+    var ec = e.target.closest('[data-edit-cand]');
+    if (ec) {
+      var cand = state.candidates.find(function (x) { return x.id === ec.dataset.editCand; });
+      if (cand) openCandidateForm(cand);
+      return;
+    }
+    var sc = e.target.closest('[data-schedule]');
+    if (sc) {
+      var c2 = state.candidates.find(function (x) { return x.id === sc.dataset.schedule; });
+      if (c2) openEventForm(null, null, c2);
+      return;
+    }
+    var fb = e.target.closest('[data-filter]');
+    if (fb) { state.candFilter = fb.dataset.filter; renderCandidates(); }
   });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'settingsForm') return;
