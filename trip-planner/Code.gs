@@ -1,6 +1,6 @@
 /**
  * 旅行共編網頁：Google Apps Script 後端
- * 資料存在綁定的 Google 試算表（行程 / 分攤 / 設定 三個工作表）
+ * 資料存在綁定的 Google 試算表（行程 / 分攤 / 候選 / 清單 / 設定 / 匯率 等工作表）
  */
 
 var SHEETS = {
@@ -10,7 +10,7 @@ var SHEETS = {
   },
   expenses: {
     name: '分攤',
-    headers: ['id', 'date', 'item', 'amount', 'payer', 'splitAmong', 'note', 'author', 'updatedAt']
+    headers: ['id', 'date', 'item', 'amount', 'payer', 'splitAmong', 'note', 'author', 'updatedAt', 'currency', 'rate']
   },
   candidates: {
     name: '候選',
@@ -37,8 +37,11 @@ var DEFAULT_SETTINGS = {
   startDate: '',
   endDate: '',
   members: '成員A,成員B,成員C,成員D',
-  currency: 'TWD'
+  currency: 'TWD',
+  extraCurrencies: 'THB'
 };
+
+var RATE_SHEET = '匯率';
 
 function doGet() {
   ensureSheets_();
@@ -50,6 +53,8 @@ function doGet() {
 /** 第一次使用可在編輯器手動執行，建立工作表 */
 function setup() {
   ensureSheets_();
+  var fx = getRates_(getSettings_());
+  Logger.log('目前匯率（換算成 ' + fx.base + '）：' + JSON.stringify(fx.rates));
 }
 
 function ensureSheets_() {
@@ -67,8 +72,80 @@ function ensureSheets_() {
         var rows = Object.keys(DEFAULT_SETTINGS).map(function (k) { return [k, DEFAULT_SETTINGS[k]]; });
         sheet.getRange(2, 1, rows.length, 2).setValues(rows);
       }
+    } else if (sheet.getLastColumn() < def.headers.length) {
+      // 舊版工作表：補上新增的欄位
+      var from = Math.max(sheet.getLastColumn(), 1);
+      sheet.getRange(1, from, sheet.getMaxRows(), def.headers.length - from + 1).setNumberFormat('@');
+      sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]).setFontWeight('bold');
     }
   });
+}
+
+/* ---------- 匯率 ---------- */
+
+function currencyList_(text) {
+  return String(text || '').toUpperCase().split(/[^A-Z]+/)
+    .filter(function (c) { return /^[A-Z]{3}$/.test(c); })
+    .filter(function (c, i, arr) { return arr.indexOf(c) === i; });
+}
+
+/**
+ * 取得「1 外幣 = ? 基準幣」的匯率。
+ * 先用試算表內建的 GOOGLEFINANCE，抓不到再用免費的 open.er-api.com 備援。
+ */
+function getRates_(settings) {
+  var base = currencyList_(settings.currency)[0] || 'TWD';
+  var list = currencyList_(settings.extraCurrencies).filter(function (c) { return c !== base; });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(RATE_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(RATE_SHEET);
+    sheet.getRange(1, 1, 1, 3).setValues([['幣別', '匯率（1 單位 = ? 基準幣）', '基準幣']]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  var rates = {};
+  var changed = false;
+  list.forEach(function (cur, i) {
+    var row = i + 2;
+    var formula = '=GOOGLEFINANCE("CURRENCY:' + cur + base + '")';
+    if (sheet.getRange(row, 1).getValue() !== cur || sheet.getRange(row, 2).getFormula() !== formula) {
+      sheet.getRange(row, 1).setValue(cur);
+      sheet.getRange(row, 2).setFormula(formula);
+      sheet.getRange(row, 3).setValue(base);
+      changed = true;
+    }
+  });
+  if (changed) SpreadsheetApp.flush();
+  var lastRow = sheet.getLastRow();
+  if (lastRow > list.length + 1) sheet.getRange(list.length + 2, 1, lastRow - list.length - 1, 3).clearContent();
+
+  list.forEach(function (cur, i) {
+    var v = sheet.getRange(i + 2, 2).getValue();
+    if (typeof v === 'number' && v > 0) {
+      rates[cur] = { rate: v, source: 'Google 財經' };
+    } else {
+      var backup = fetchRate_(cur, base);
+      rates[cur] = backup ? { rate: backup, source: 'open.er-api.com' } : { rate: 0, source: '' };
+    }
+  });
+  return { base: base, rates: rates };
+}
+
+function fetchRate_(cur, base) {
+  var cache = CacheService.getScriptCache();
+  var key = 'rate_' + cur + base;
+  var hit = cache.get(key);
+  if (hit) return Number(hit);
+  try {
+    var res = UrlFetchApp.fetch('https://open.er-api.com/v6/latest/' + cur, { muteHttpExceptions: true });
+    var json = JSON.parse(res.getContentText());
+    var rate = json && json.rates && Number(json.rates[base]);
+    if (rate > 0) {
+      cache.put(key, String(rate), 3 * 60 * 60);
+      return rate;
+    }
+  } catch (e) {}
+  return 0;
 }
 
 function readRows_(key) {
@@ -96,8 +173,12 @@ function getSettings_() {
 /** 前端讀取全部資料 */
 function getData() {
   ensureSheets_();
+  var settings = getSettings_();
+  var fx = { base: settings.currency || 'TWD', rates: {} };
+  try { fx = getRates_(settings); } catch (e) {}
   return {
-    settings: getSettings_(),
+    settings: settings,
+    fx: fx,
     itinerary: readRows_('itinerary'),
     expenses: readRows_('expenses'),
     candidates: readRows_('candidates'),
