@@ -6,7 +6,7 @@
 var SHEETS = {
   itinerary: {
     name: '行程',
-    headers: ['id', 'date', 'time', 'endTime', 'title', 'category', 'location', 'note', 'status', 'author', 'updatedAt', 'images']
+    headers: ['id', 'date', 'time', 'endTime', 'title', 'category', 'location', 'note', 'status', 'author', 'updatedAt', 'images', 'booking']
   },
   expenses: {
     name: '分攤',
@@ -14,7 +14,7 @@ var SHEETS = {
   },
   candidates: {
     name: '候選',
-    headers: ['id', 'title', 'category', 'location', 'link', 'note', 'votes', 'author', 'createdAt', 'updatedAt', 'images']
+    headers: ['id', 'title', 'category', 'location', 'link', 'note', 'votes', 'author', 'createdAt', 'updatedAt', 'images', 'booking']
   },
   checklist: {
     name: '清單',
@@ -38,7 +38,7 @@ var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選
 var LOG_KEEP = 300;
 
 /** 程式版本：要跟 Index.html 裡的 APP_VERSION 一樣，不一樣代表其中一個檔案沒更新到 */
-var APP_VERSION = '2026-10-02.8';
+var APP_VERSION = '2026-10-03.1';
 
 /**
  * 上傳圖片存放的 Google 雲端硬碟資料夾 ID
@@ -60,7 +60,8 @@ var DEFAULT_SETTINGS = {
   endDate: '',
   members: '成員A,成員B,成員C,成員D',
   currency: 'TWD',
-  extraCurrencies: 'THB'
+  extraCurrencies: 'THB',
+  baseLocation: ''
 };
 
 var RATE_SHEET = '匯率';
@@ -796,7 +797,8 @@ function buildItineraryHtml_(settings, items, generatedAt, actor) {
     list.forEach(function (it) {
       html += '<tr><td class="t">' + htmlEsc_(it.time || '—') + (it.endTime ? '<br><span class="cat">~' + htmlEsc_(it.endTime) + '</span>' : '') + '</td><td>' +
         '<div class="title">' + htmlEsc_(it.title) + ' <span class="cat">［' + (PDF_CATEGORY[it.category] || '其他') + '］</span>' +
-        (it.status !== 'confirmed' ? ' <span class="tent">待確認</span>' : '') + '</div>' +
+        (it.status !== 'confirmed' ? ' <span class="tent">待確認</span>' : '') +
+        (it.booking === 'need' ? ' <span class="tent">需預約・未訂</span>' : (it.booking === 'booked' ? ' <span class="cat">已預約</span>' : '')) + '</div>' +
         (it.location ? '<div class="loc">地點：' + htmlEsc_(it.location) + '</div>' : '') +
         (it.note ? '<div class="note">' + htmlEsc_(it.note).replace(/\n/g, '<br>') + '</div>' : '') +
         imagesHtml(it) + '</td></tr>';
@@ -847,4 +849,191 @@ function exportPdf(opts) {
     lock.releaseLock();
   }
   return getData();
+}
+
+/* ---------- 距離與地圖（Google 地圖服務，免 API 金鑰） ---------- */
+
+var GEO_SHEET = '地點快取';
+var GEO_BUDGET = 40;          // 每次呼叫最多查詢幾次 Google 地圖（避免逾時，剩下的下次再算）
+var GEO_HINT = '曼谷';         // 地點沒寫城市時，加上這個再查一次
+
+function geoSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(GEO_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(GEO_SHEET);
+    sh.getRange(1, 1, sh.getMaxRows(), 3).setNumberFormat('@');
+    sh.getRange(1, 1, 1, 3).setValues([['key', 'value', 'at']]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function geoCacheRead_() {
+  var sh = geoSheet_(), last = sh.getLastRow(), map = {};
+  if (last < 2) return map;
+  sh.getRange(2, 1, last - 1, 2).getDisplayValues().forEach(function (r) {
+    if (!r[0]) return;
+    try { map[r[0]] = JSON.parse(r[1]); } catch (e) {}
+  });
+  return map;
+}
+
+function geoKeyOf_(loc) { return 'g|' + String(loc || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+function round5_(n) { return Math.round(Number(n) * 1e5) / 1e5; }
+
+/** Google 地圖分享網址（含短網址）→ 座標或地名 */
+function resolveMapsUrl_(url) {
+  var target = url;
+  try {
+    for (var i = 0; i < 3 && /goo\.gl|g\.co\//.test(target); i++) {
+      var res = UrlFetchApp.fetch(target, { followRedirects: false, muteHttpExceptions: true });
+      var headers = res.getAllHeaders();
+      var next = headers.Location || headers.location;
+      if (!next) break;
+      target = String(next);
+    }
+  } catch (e) {}
+  target = decodeURIComponent(target);
+  var m = /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/.exec(target) || /@(-?\d+\.\d+),(-?\d+\.\d+)/.exec(target) ||
+          /[?&](?:q|query|ll)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/.exec(target);
+  var name = (/\/place\/([^\/@?]+)/.exec(target) || [])[1] || (/[?&](?:q|query)=([^&]+)/.exec(target) || [])[1] || '';
+  name = name.replace(/\+/g, ' ');
+  if (m) return { lat: Number(m[1]), lng: Number(m[2]), name: name };
+  return name ? { query: name } : null;
+}
+
+function geocodeOnce_(query) {
+  var res = Maps.newGeocoder().setLanguage('zh-TW').setRegion('th').geocode(query);
+  if (res.status === 'OVER_QUERY_LIMIT' || res.status === 'UNKNOWN_ERROR') throw new Error(res.status);
+  if (res.status !== 'OK' || !res.results || !res.results.length) return null;
+  return res.results[0];
+}
+
+function areaOf_(result) {
+  var comps = (result && result.address_components) || [];
+  var pick = function (type) {
+    for (var i = 0; i < comps.length; i++) if (comps[i].types.indexOf(type) >= 0) return comps[i].long_name;
+    return '';
+  };
+  return pick('sublocality_level_1') || pick('administrative_area_level_2') || pick('locality') || pick('administrative_area_level_1');
+}
+
+/** 查一個地點的座標（先看快取） */
+function geocode_(loc, cache, budget) {
+  var key = geoKeyOf_(loc);
+  if (cache[key]) return cache[key];
+  if (budget.left <= 0) return null;
+  var out = { ok: false };
+  try {
+    var text = String(loc).trim();
+    var query = text, preset = null;
+    if (/^https?:\/\//i.test(text)) {
+      budget.left--;
+      preset = resolveMapsUrl_(text);
+      if (preset && preset.query) query = preset.query;
+    }
+    if (preset && preset.lat != null) {
+      budget.left--;
+      var rev = null;
+      try { rev = Maps.newGeocoder().setLanguage('zh-TW').reverseGeocode(preset.lat, preset.lng); } catch (e) {}
+      var r0 = rev && rev.results && rev.results[0];
+      out = { ok: true, lat: round5_(preset.lat), lng: round5_(preset.lng), area: areaOf_(r0), addr: preset.name || (r0 && r0.formatted_address) || '' };
+    } else if (!/^https?:\/\//i.test(query)) {
+      budget.left--;
+      var r = geocodeOnce_(query);
+      if (!r && !/曼谷|bangkok|กรุงเทพ|泰國|thailand/i.test(query) && budget.left > 0) {
+        budget.left--;
+        r = geocodeOnce_(query + ' ' + GEO_HINT);
+      }
+      if (r) out = { ok: true, lat: round5_(r.geometry.location.lat), lng: round5_(r.geometry.location.lng), area: areaOf_(r), addr: r.formatted_address || '' };
+    }
+  } catch (e) {
+    // 暫時性錯誤（例如超過每日用量）不寫入快取，之後會再試
+    cache[key] = { ok: false, error: String(e.message || e).slice(0, 100), temp: true };
+    return cache[key];
+  }
+  cache[key] = out;
+  cache.__new.push([key, JSON.stringify(out), new Date().toISOString()]);
+  return out;
+}
+
+var GEO_MODES = { drive: 'DRIVING', transit: 'TRANSIT', walk: 'WALKING' };
+
+function route_(a, b, mode, cache, budget) {
+  var key = 'r|' + mode + '|' + a.lat + ',' + a.lng + '|' + b.lat + ',' + b.lng;
+  if (cache[key]) return cache[key];
+  if (budget.left <= 0) return null;
+  budget.left--;
+  var out = { ok: false };
+  try {
+    var dir = Maps.newDirectionFinder().setOrigin(a.lat, a.lng).setDestination(b.lat, b.lng)
+      .setMode(Maps.DirectionFinder.Mode[GEO_MODES[mode]]).setLanguage('zh-TW').getDirections();
+    var leg = dir && dir.routes && dir.routes[0] && dir.routes[0].legs && dir.routes[0].legs[0];
+    if (leg) out = { ok: true, m: leg.distance.value, s: leg.duration.value };
+  } catch (e) {
+    // 暫時性錯誤（例如超過每日用量）不寫入快取，之後會再試
+    cache[key] = { ok: false, error: String(e.message || e).slice(0, 100), temp: true };
+    return cache[key];
+  }
+  cache[key] = out;
+  cache.__new.push([key, JSON.stringify(out), new Date().toISOString()]);
+  return out;
+}
+
+/**
+ * 前端要什麼就算什麼：
+ * req.locations：地點文字陣列 → 回傳座標、區域
+ * req.routes：[{from, to, mode}]（mode: drive | transit | walk）→ 回傳距離（公尺）、時間（秒）
+ * 結果會存在「地點快取」工作表，同樣的地點和路線不會重查。
+ */
+function getGeo(req) {
+  req = req || {};
+  var cache = geoCacheRead_();
+  cache.__new = [];
+  var budget = { left: GEO_BUDGET };
+  var places = {}, routes = {}, pending = 0;
+  (req.locations || []).slice(0, 300).forEach(function (loc) {
+    loc = String(loc || '').trim();
+    if (!loc || places[loc]) return;
+    var g = geocode_(loc, cache, budget);
+    if (g) places[loc] = g; else pending++;
+  });
+  (req.routes || []).slice(0, 300).forEach(function (r) {
+    var mode = GEO_MODES[r.mode] ? r.mode : 'drive';
+    var k = mode + '|' + r.from + '|' + r.to;
+    if (routes[k]) return;
+    var a = geocode_(r.from, cache, budget), b = geocode_(r.to, cache, budget);
+    if (!a || !b) { pending++; return; }
+    if (!a.ok || !b.ok) { routes[k] = { ok: false, error: 'place' }; return; }
+    var x = route_(a, b, mode, cache, budget);
+    if (x) routes[k] = x; else pending++;
+  });
+  if (cache.__new.length) {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      var sh = geoSheet_();
+      sh.getRange(sh.getLastRow() + 1, 1, cache.__new.length, 3).setNumberFormat('@').setValues(cache.__new);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  return { places: places, routes: routes, pending: pending };
+}
+
+/** 候選地圖總覽：points = [{lat, lng, label, color}]，回傳圖片 data URL */
+function getOverviewMap(points, base) {
+  var map = Maps.newStaticMap().setSize(640, 640).setLanguage('zh-TW').setMapType(Maps.StaticMap.Type.ROADMAP);
+  if (base && base.lat != null) {
+    map.setMarkerStyle(Maps.StaticMap.MarkerSize.MID, Maps.StaticMap.Color.BLACK, 'H');
+    map.addMarker(Number(base.lat), Number(base.lng));
+  }
+  (points || []).slice(0, 35).forEach(function (p) {
+    map.setMarkerStyle(Maps.StaticMap.MarkerSize.MID, p.color === 'green' ? Maps.StaticMap.Color.GREEN :
+      (p.color === 'red' ? Maps.StaticMap.Color.RED : Maps.StaticMap.Color.ORANGE), String(p.label || '').slice(0, 1));
+    map.addMarker(Number(p.lat), Number(p.lng));
+  });
+  var blob = map.getBlob();
+  return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
 }
