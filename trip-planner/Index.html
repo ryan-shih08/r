@@ -251,6 +251,9 @@
   .chip.book-need { background: #fbe3e1; color: var(--danger); }
   .chip.book-ok { background: var(--ok-soft); color: var(--ok); }
   .head-tools { display: flex; gap: 6px; align-items: center; }
+  .base-pick { display: flex; align-items: center; gap: 8px; margin: -4px 0 12px; font-size: 13px; color: var(--muted); }
+  .base-pick span { flex: none; }
+  .base-pick select { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 10px; padding: 6px 8px; font-size: 14px; }
   .head-tools select { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 8px; font-size: 13px; }
   .map-img { width: 100%; border-radius: 12px; display: block; background: var(--surface-2); min-height: 200px; }
   .map-legend { margin-top: 10px; font-size: 14px; }
@@ -407,7 +410,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-10-03.1';
+  var APP_VERSION = '2026-10-03.2';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
@@ -724,10 +727,10 @@
     var hex = { green: '#3f9b6e', red: '#d0493f', orange: '#e0703a' };
     var points = onMap.map(function (x, i) { return { lat: x.p.lat, lng: x.p.lng, label: MAP_LABELS[i], color: color(x.v) }; });
     openModal('<h3>🗺️ 候選地圖總覽</h3>' +
-      '<div class="help" style="margin:-8px 0 10px">綠色＝讚比較多，紅色＝倒讚比較多，橘色＝還沒定論' + (bp && bp.ok ? '；H＝基準點' : '') + '</div>' +
+      '<div class="help" style="margin:-8px 0 10px">綠色＝讚比較多，紅色＝倒讚比較多，橘色＝還沒定論' + (bp && bp.ok ? '；H＝出發點' : '') + '</div>' +
       '<div id="mapBox"><div class="map-img" style="display:flex;align-items:center;justify-content:center;color:var(--muted)">' +
         (points.length ? '產生地圖中…' : '還沒有可以標在地圖上的候選') + '</div></div>' +
-      '<div class="map-legend">' + (bp && bp.ok ? '<div><span class="pin" style="background:#222">H</span><span>' + esc(base) + '（基準點）</span></div>' : '') +
+      '<div class="map-legend">' + (bp && bp.ok ? '<div><span class="pin" style="background:#222">H</span><span>' + esc(base) + '（出發點）</span></div>' : '') +
         onMap.map(function (x, i) {
           var d = base ? geoRoute('drive', base, String(x.c.location).trim()) : null;
           return '<div><span class="pin" style="background:' + hex[color(x.v)] + '">' + MAP_LABELS[i] + '</span><span>' + esc(x.c.title) +
@@ -1096,7 +1099,57 @@
   }
 
   /* ---------- 距離 ---------- */
-  function baseLoc() { return String(state.settings.baseLocation || '').trim(); }
+  /**
+   * 出發點：每個人在候選頁各自選（存在自己的瀏覽器），沒選過就用設定裡的預設基準點，
+   * 再沒有就用第一個「住宿」類型的地點。
+   */
+  function myBase() { try { return localStorage.getItem('trip-base') || ''; } catch (e) { return ''; } }
+  function setMyBase(v) { try { if (v) localStorage.setItem('trip-base', v); else localStorage.removeItem('trip-base'); } catch (e) {} }
+  function baseOptions() {
+    var opts = [], seen = {};
+    function add(loc, label) {
+      loc = String(loc || '').trim();
+      if (!loc || seen[loc]) return;
+      seen[loc] = 1;
+      opts.push({ loc: loc, label: label });
+    }
+    var def = String(state.settings.baseLocation || '').trim();
+    if (def) add(def, '⭐ ' + def + '（預設）');
+    sortDay(state.itinerary.filter(function (x) { return x.category === 'stay'; }))
+      .sort(function (a, b) { return (a.date || '9999').localeCompare(b.date || '9999'); })
+      .forEach(function (x) { add(x.location, '🏨 ' + x.title + (x.date ? '（' + fmtShort(x.date) + '起）' : '')); });
+    state.candidates.filter(function (x) { return x.category === 'stay'; })
+      .forEach(function (x) { add(x.location, '🏨 ' + x.title + '（候選）'); });
+    var mine = myBase();
+    if (mine) add(mine, '📍 ' + mine + '（自訂）');
+    return opts;
+  }
+  function baseLoc() {
+    var mine = myBase();
+    if (mine) return mine;
+    var opts = baseOptions();
+    return opts.length ? opts[0].loc : '';
+  }
+  function basePickerHtml() {
+    var opts = baseOptions(), cur = baseLoc();
+    return '<div class="base-pick"><span>📍 從哪裡出發</span><select id="basePick" aria-label="出發點">' +
+      (opts.length ? '' : '<option value="">（還沒有住宿地點）</option>') +
+      opts.map(function (o) { return '<option value="' + esc(o.loc) + '"' + (o.loc === cur ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') +
+      '<option value="__custom__">✏️ 自訂地點…</option></select></div>';
+  }
+  function pickBase(v) {
+    if (v === '__custom__') {
+      var txt = prompt('要從哪裡出發？\n可以填店名、地址，或貼 Google 地圖連結', myBase() || '');
+      txt = String(txt || '').trim();
+      if (!txt) { renderCandidates(); return; }
+      v = txt;
+    }
+    // 選回預設值時清掉個人設定，之後預設改了會跟著變
+    var def = String(state.settings.baseLocation || '').trim();
+    setMyBase(v && v !== def ? v : '');
+    renderCandidates();
+    refreshGeo();
+  }
   function routeKey(mode, a, b) { return mode + '|' + String(a).trim() + '|' + String(b).trim(); }
   function geoRoute(mode, a, b) { return state.geo.routes[routeKey(mode, a, b)]; }
   function fmtMins(sec) {
@@ -1245,8 +1298,9 @@
       '<select id="candSort" aria-label="排序"><option value="votes"' + (state.candSort === 'votes' ? ' selected' : '') + '>依票數</option>' +
       '<option value="distance"' + (state.candSort === 'distance' ? ' selected' : '') + '>依距離</option></select>' +
       '<button type="button" class="pdf-btn" id="mapBtn">🗺️ 地圖</button></div></div>';
-    if (!base) html += '<div class="help" style="margin:-6px 0 10px">💡 到「設定」填「基準點」（例如飯店），每個候選就會顯示離那裡多遠</div>';
-    else if (state.geo.places[base] && !state.geo.places[base].ok) html += '<div class="geo warn" style="margin:-6px 0 10px">⚠️ 地圖找不到基準點「' + esc(base) + '」，請到設定改寫完整一點</div>';
+    html += basePickerHtml();
+    if (!base) html += '<div class="help" style="margin:-4px 0 10px">💡 在行程或候選加一筆類型「🏨 住宿」的地點，或選「自訂地點」，每個候選就會顯示離那裡多遠</div>';
+    else if (state.geo.places[base] && !state.geo.places[base].ok) html += '<div class="geo warn" style="margin:-4px 0 10px">⚠️ 地圖找不到「' + esc(base) + '」，請換一個出發點，或把地點寫完整一點</div>';
     html += '<div class="filters" id="candFilters">' + cats.map(function (c) {
       var n = c.key === 'all' ? state.candidates.length : state.candidates.filter(function (x) { return (x.category || 'other') === c.key; }).length;
       return '<button type="button" data-filter="' + c.key + '" class="' + (state.candFilter === c.key ? 'on' : '') + '">' +
@@ -1630,8 +1684,8 @@
         '<div class="field"><label>回程日</label><input type="date" name="endDate" value="' + esc(s.endDate) + '"></div></div>' +
         '<div class="field"><label>成員（用逗號分隔）</label><input name="members" value="' + esc(s.members) + '">' +
           '<div class="help">改名字的話，舊的支出紀錄不會自動跟著改，記得一起修改。</div></div>' +
-        '<div class="field"><label>基準點（通常是飯店）</label><input name="baseLocation" maxlength="200" value="' + esc(s.baseLocation) + '" placeholder="飯店名稱、地址，或 Google 地圖連結">' +
-          '<div class="help">候選會顯示離這裡多遠、開車和大眾運輸要多久。換飯店時改這裡就好。</div></div>' +
+        '<div class="field"><label>預設出發點（通常是飯店）</label><input name="baseLocation" maxlength="200" value="' + esc(s.baseLocation) + '" placeholder="飯店名稱、地址，或 Google 地圖連結">' +
+          '<div class="help">候選頁會顯示離出發點多遠。每個人可以在候選頁上方各自切換出發點（不影響別人），這裡是大家第一次打開時的預設值。</div></div>' +
         '<div class="row2"><div class="field"><label>結算幣別</label><input name="currency" maxlength="3" value="' + esc(s.currency) + '" placeholder="TWD"></div>' +
         '<div class="field"><label>外幣（可多個，用逗號分隔）</label><input name="extraCurrencies" maxlength="40" value="' + esc(s.extraCurrencies) + '" placeholder="例如 THB"></div></div>' +
         '<div class="help" style="margin:-6px 0 14px">幣別請用 3 碼代號，例如 TWD、THB、JPY。外幣支出會依記帳當時的匯率換算成結算幣別再分攤，匯率由 Google 財經自動抓取。' +
@@ -1646,7 +1700,7 @@
         '・還沒決定的景點、餐廳先放「候選」，大家投票後按「排入行程」選日期。<br>' +
         '・行程可先標成「待確認」（虛線框），決定後再改成「已確定」。<br>' +
         '・「清單」分成行李和待辦：「每人都要帶」的行李各自勾選；共用物品和待辦可以指定負責人。<br>' +
-        '・設定「基準點」後，候選會顯示距離，可以「依距離」排序，也能看「🗺️ 地圖」總覽。行程裡兩站之間會顯示車程，來不及會標紅色。<br>' +
+        '・候選頁上方選「從哪裡出發」（每人各自選，不影響別人），候選會顯示距離，可以「依距離」排序，也能看「🗺️ 地圖」總覽。行程裡兩站之間會顯示車程，來不及會標紅色。<br>' +
         '・每天標題旁的「🗺️ 路線」會依時間順序在 Google 地圖打開當天路線（最多 10 個地點）。<br>' +
         '・行程和候選卡片上的「💬」可以留言討論，有新留言會出現紅點。<br>' +
         '・上方「🕘 紀錄」可以看到誰改了什麼，改錯了可以按「復原」。兩個人同時改同一筆時，後儲存的人會收到提醒。<br>' +
@@ -1847,7 +1901,7 @@
   var FIELD_LABELS = {
     date: '日期', time: '開始時間', endTime: '結束時間', title: '名稱', category: '類型', location: '地點', note: '備註',
     status: '狀態', item: '項目', amount: '金額', payer: '付款人', splitAmong: '分攤的人', currency: '幣別', rate: '匯率',
-    link: '連結', images: '照片', booking: '預約', baseLocation: '基準點', text: '留言內容', scope: '行李類型', owner: '負責人', dueDate: '期限',
+    link: '連結', images: '照片', booking: '預約', baseLocation: '預設出發點', text: '留言內容', scope: '行李類型', owner: '負責人', dueDate: '期限',
     tripName: '旅行名稱', startDate: '出發日', endDate: '回程日', members: '成員', extraCurrencies: '外幣'
   };
   var IGNORE_FIELDS = ['id', 'updatedAt', 'createdAt', 'author', 'votes', 'checkedBy', 'done', 'kind'];
@@ -2012,6 +2066,7 @@
   document.addEventListener('change', function (e) {
     if (e.target.id === 'mineOnly') { state.listMine = e.target.checked; renderChecklist(); }
     if (e.target.id === 'candSort') { state.candSort = e.target.value; renderCandidates(); }
+    if (e.target.id === 'basePick') pickBase(e.target.value);
   });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'settingsForm') return;

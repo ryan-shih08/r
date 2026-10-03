@@ -38,7 +38,7 @@ var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選
 var LOG_KEEP = 300;
 
 /** 程式版本：要跟 Index.html 裡的 APP_VERSION 一樣，不一樣代表其中一個檔案沒更新到 */
-var APP_VERSION = '2026-10-03.1';
+var APP_VERSION = '2026-10-03.2';
 
 /**
  * 上傳圖片存放的 Google 雲端硬碟資料夾 ID
