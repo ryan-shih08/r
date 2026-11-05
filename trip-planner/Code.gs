@@ -6,7 +6,7 @@
 var SHEETS = {
   itinerary: {
     name: '行程',
-    headers: ['id', 'date', 'time', 'endTime', 'title', 'category', 'location', 'note', 'status', 'author', 'updatedAt', 'images', 'booking']
+    headers: ['id', 'date', 'time', 'endTime', 'title', 'category', 'location', 'note', 'status', 'author', 'updatedAt', 'images', 'booking', 'origin']
   },
   expenses: {
     name: '分攤',
@@ -38,7 +38,7 @@ var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選
 var LOG_KEEP = 300;
 
 /** 程式版本：要跟 Index.html 裡的 APP_VERSION 一樣，不一樣代表其中一個檔案沒更新到 */
-var APP_VERSION = '2026-10-03.2';
+var APP_VERSION = '2026-11-05.1';
 
 /**
  * 上傳圖片存放的 Google 雲端硬碟資料夾 ID
@@ -279,6 +279,10 @@ function writeItem_(type, item) {
     item.createdAt = before ? before.createdAt : item.updatedAt;
   }
   if (MAX_IMAGES[type]) item.images = JSON.stringify(imageIds_(item.images).slice(0, MAX_IMAGES[type]));
+  if (type === 'itinerary' && item.origin == null) {
+    // origin 記錄這筆是從哪個候選排進來的（投票、提議人…），編輯行程時保留，移回候選時用來還原
+    item.origin = before ? before.origin : '';
+  }
   if (type === 'checklist') {
     // 勾選狀態只能透過 toggleCheck() 修改，編輯內容時保留
     item.done = before ? before.done : '';
@@ -418,6 +422,7 @@ function scheduleCandidate(candidateId, event, opts) {
     if (!rowIndex) throw new Error('這個候選項目已被刪除或排入行程');
     var cand = readItem_('candidates', rowIndex);
     event.id = '';
+    event.origin = JSON.stringify({ id: cand.id, votes: cand.votes, link: cand.link, author: cand.author, createdAt: cand.createdAt });
     var res = writeItem_('itinerary', event);
     sheet.deleteRow(rowIndex);
     var changes = [{ type: 'candidates', id: cand.id, before: cand, after: null },
@@ -436,6 +441,53 @@ function scheduleCandidate(candidateId, event, opts) {
       changes.push({ type: 'comments', id: cm.id, before: cm, after: readItem_('comments', r) });
     });
     addLog_(actorOf_(opts, event), 'schedule', '把「' + titleOf_('candidates', cand) + '」排入行程', changes);
+  } finally {
+    lock.releaseLock();
+  }
+  return getData();
+}
+
+/** 把行程移回候選：還原成候選（含原本的投票、提議人），刪除這筆行程，留言跟著搬回去 */
+function unscheduleEvent(eventId, opts) {
+  opts = opts || {};
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    ensureSheets_();
+    var evSheet = sheetOf_('itinerary');
+    var rowIndex = findRow_(evSheet, eventId);
+    if (!rowIndex) throw new Error('這筆行程已經被刪除了');
+    var ev = readItem_('itinerary', rowIndex);
+    if (opts.base && !opts.force && ev.updatedAt !== opts.base) {
+      throw conflict_({ kind: 'modified', by: ev.author, at: ev.updatedAt, title: titleOf_('itinerary', ev) });
+    }
+    var origin = {};
+    try { origin = JSON.parse(ev.origin || '{}') || {}; } catch (e) {}
+    var candSheet = sheetOf_('candidates');
+    var candId = origin.id && !findRow_(candSheet, origin.id) ? origin.id : Utilities.getUuid();
+    var now = new Date().toISOString();
+    writeRow_('candidates', 0, {
+      id: candId, title: ev.title, category: ev.category, location: ev.location, link: origin.link || '',
+      note: ev.note, votes: origin.votes || '{}', author: origin.author || ev.author || actorOf_(opts),
+      createdAt: origin.createdAt || now, updatedAt: now, images: ev.images, booking: ev.booking
+    });
+    var cand = readItem_('candidates', candSheet.getLastRow());
+    evSheet.deleteRow(findRow_(evSheet, eventId));
+    var changes = [{ type: 'itinerary', id: ev.id, before: ev, after: null },
+                   { type: 'candidates', id: cand.id, before: null, after: cand }];
+    var cSheet = sheetOf_('comments');
+    readRows_('comments').forEach(function (cm) {
+      if (cm.targetType !== 'itinerary' || cm.targetId !== ev.id) return;
+      var r = findRow_(cSheet, cm.id);
+      var moved = {};
+      Object.keys(cm).forEach(function (k) { moved[k] = cm[k]; });
+      moved.targetType = 'candidates';
+      moved.targetId = cand.id;
+      moved.updatedAt = new Date().toISOString();
+      writeRow_('comments', r, moved);
+      changes.push({ type: 'comments', id: cm.id, before: cm, after: readItem_('comments', r) });
+    });
+    addLog_(actorOf_(opts), 'unschedule', '把「' + titleOf_('itinerary', ev) + '」移回候選', changes);
   } finally {
     lock.releaseLock();
   }

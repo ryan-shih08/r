@@ -263,6 +263,16 @@
   .book-row:last-child { border-bottom: 0; }
   .book-row .t { flex: 1; min-width: 0; }
 
+  /* Pick from candidates */
+  .pick-manual { width: 100%; margin-bottom: 14px; }
+  .pick-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .pick-head input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 6px 10px; }
+  #pickList { max-height: 55vh; overflow-y: auto; }
+  .pick-row { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .pick-row:active { background: var(--accent-soft); }
+  .pick-title { display: block; font-weight: 600; }
+  .pick-meta { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+
   /* History */
   .hist { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .hist:last-child { border-bottom: 0; }
@@ -410,7 +420,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-10-03.2';
+  var APP_VERSION = '2026-11-05.1';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
@@ -439,7 +449,7 @@
       });
     }
     var api = {};
-    ['getData', 'saveItem', 'deleteItem', 'saveSettings', 'vote', 'scheduleCandidate', 'addItems', 'toggleCheck', 'getLog', 'undo', 'uploadImage', 'discardImages', 'exportPdf', 'getGeo', 'getOverviewMap']
+    ['getData', 'saveItem', 'deleteItem', 'saveSettings', 'vote', 'scheduleCandidate', 'addItems', 'toggleCheck', 'getLog', 'undo', 'uploadImage', 'discardImages', 'exportPdf', 'getGeo', 'getOverviewMap', 'unscheduleEvent']
       .forEach(function (fn) {
         api[fn] = function () { return call(fn, Array.prototype.slice.call(arguments)); };
       });
@@ -512,11 +522,26 @@
       scheduleCandidate: function (id, ev) {
         var d = loadFull();
         ev.id = 'm' + Date.now(); ev.updatedAt = new Date().toISOString();
+        var cand = d.candidates.find(function (x) { return x.id === id; }) || {};
+        ev.origin = JSON.stringify({ id: cand.id, votes: cand.votes, link: cand.link, author: cand.author, createdAt: cand.createdAt });
         d.itinerary.push(ev);
         d.candidates = d.candidates.filter(function (x) { return x.id !== id; });
         d.comments.forEach(function (c) {
           if (c.targetType === 'candidates' && c.targetId === id) { c.targetType = 'itinerary'; c.targetId = ev.id; }
         });
+        save(d); return snapshot(d);
+      },
+      unscheduleEvent: function (id) {
+        var d = loadFull();
+        var ev = d.itinerary.find(function (x) { return x.id === id; });
+        if (!ev) return Promise.reject(new Error('這筆行程已經被刪除了'));
+        var o = {}; try { o = JSON.parse(ev.origin || '{}') || {}; } catch (e) {}
+        var now = new Date().toISOString();
+        var cand = { id: o.id || ('m' + Date.now()), title: ev.title, category: ev.category, location: ev.location, link: o.link || '',
+          note: ev.note, votes: o.votes || '{}', author: o.author || ev.author, createdAt: o.createdAt || now, updatedAt: now, images: ev.images, booking: ev.booking };
+        d.candidates.push(cand);
+        d.itinerary = d.itinerary.filter(function (x) { return x.id !== id; });
+        d.comments.forEach(function (c) { if (c.targetType === 'itinerary' && c.targetId === id) { c.targetType = 'candidates'; c.targetId = cand.id; } });
         save(d); return snapshot(d);
       },
       addItems: function (type, items) {
@@ -984,8 +1009,8 @@
       return '「' + c.title + '」已經被別人刪除了。\n\n按「確定」用你的內容重新建立；按「取消」放棄你的修改。';
     }
     var who = (c.by || '其他人') + (c.at ? ' 在 ' + fmtDateTime(c.at) : '');
-    return who + ' 修改了「' + c.title + '」（在你打開之後）。\n\n' + (verb === 'delete'
-      ? '確定還是要刪除嗎？'
+    return who + ' 修改了「' + c.title + '」（在你打開之後）。\n\n' + (verb === 'delete' ? '確定還是要刪除嗎？'
+      : verb === 'move' ? '確定還是要移回候選嗎？（會用對方修改後的內容）'
       : '按「確定」用你的版本覆蓋；按「取消」放棄你的修改，改看最新內容。');
   }
   /** makeReq(force) 回傳 Promise；遇到衝突時詢問使用者要不要強制執行 */
@@ -1697,7 +1722,7 @@
       '</form>' +
       '<div class="card"><h3>💡 使用說明</h3><div class="help" style="font-size:13px;line-height:1.7">' +
         '・上方「我是」選你的名字，新增的項目會標上你的名字，記帳時預設由你付款。<br>' +
-        '・還沒決定的景點、餐廳先放「候選」，大家投票後按「排入行程」選日期。<br>' +
+        '・還沒決定的景點、餐廳先放「候選」，大家投票後按「排入行程」選日期；在行程頁按「＋」也能直接從候選挑。計畫有變可以在行程裡按「移回候選」。<br>' +
         '・行程可先標成「待確認」（虛線框），決定後再改成「已確定」。<br>' +
         '・「清單」分成行李和待辦：「每人都要帶」的行李各自勾選；共用物品和待辦可以指定負責人。<br>' +
         '・候選頁上方選「從哪裡出發」（每人各自選，不影響別人），候選會顯示距離，可以「依距離」排序，也能看「🗺️ 地圖」總覽。行程裡兩站之間會顯示車程，來不及會標紅色。<br>' +
@@ -1725,11 +1750,47 @@
     $('#modalRoot').innerHTML = '';
   }
 
+  /** 在行程頁新增：先問要從候選挑，還是自己新增 */
+  function openAddChooser(presetDate) {
+    if (!state.candidates.length) { openEventForm(null, presetDate); return; }
+    var base = baseLoc();
+    var list = state.candidates.map(function (c) { return { c: c, v: voteSummary(c) }; });
+    list.sort(function (a, b) { return b.v.score - a.v.score || b.v.up.length - a.v.up.length || (a.c.createdAt || '').localeCompare(b.c.createdAt || ''); });
+    openModal('<h3>新增行程' + (presetDate ? '・' + esc(fmtShort(presetDate)) : '') + '</h3>' +
+      '<button type="button" class="btn ghost pick-manual" id="pickManual">✏️ 自己新增（不從候選）</button>' +
+      '<div class="pick-head"><span>📌 從候選挑選</span>' + (list.length > 6 ? '<input id="pickSearch" placeholder="搜尋名稱…">' : '') + '</div>' +
+      '<div id="pickList">' + list.map(function (x) {
+        var c = x.c, cat = catOf(c.category);
+        var d = base && c.location ? geoRoute('drive', base, String(c.location).trim()) : null;
+        return '<button type="button" class="pick-row" data-pick="' + esc(c.id) + '" data-name="' + esc(String(c.title || '').toLowerCase()) + '">' +
+          '<span class="pick-title">' + cat.icon + ' ' + esc(c.title) + '</span>' +
+          '<span class="pick-meta">👍 ' + x.v.up.length + '　👎 ' + x.v.down.length +
+            (d && d.ok ? '　🚗 ' + fmtMins(d.s) : '') + (c.booking === 'need' ? '　📅 待預約' : '') + '</span></button>';
+      }).join('') + '</div>' +
+      '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button></div>',
+      function (root) {
+        $('#cancelBtn', root).onclick = closeModal;
+        $('#pickManual', root).onclick = function () { closeModal(); openEventForm(null, presetDate); };
+        $('#pickList', root).addEventListener('click', function (e) {
+          var b = e.target.closest('[data-pick]');
+          if (!b) return;
+          var c = state.candidates.find(function (x) { return x.id === b.dataset.pick; });
+          closeModal();
+          if (c) openEventForm(null, presetDate, c); else toast('這個候選已經不在了');
+        });
+        var q = $('#pickSearch', root);
+        if (q) q.addEventListener('input', function () {
+          var k = q.value.trim().toLowerCase();
+          root.querySelectorAll('[data-pick]').forEach(function (b) { b.style.display = !k || b.dataset.name.indexOf(k) >= 0 ? '' : 'none'; });
+        });
+      });
+  }
+
   function openEventForm(item, presetDate, fromCandidate) {
     var it = item || { date: presetDate != null ? presetDate : (state.settings.startDate || ''), category: 'sight', status: 'tentative' };
     if (fromCandidate) {
       var fc = fromCandidate;
-      it = { date: state.settings.startDate || '', category: fc.category || 'sight', status: 'confirmed',
+      it = { date: presetDate != null ? presetDate : (state.settings.startDate || ''), category: fc.category || 'sight', status: 'confirmed',
         title: fc.title, location: fc.location, note: [fc.note, fc.link].filter(Boolean).join('\n'), images: fc.images, booking: fc.booking };
     }
     var html = '<h3>' + (item ? '編輯行程' : (fromCandidate ? '排入行程' : '新增行程')) + '</h3>' +
@@ -1749,11 +1810,17 @@
       '<div class="field"><label>狀態</label><div class="seg" id="stSeg">' +
         '<button type="button" data-st="tentative" class="' + (it.status !== 'confirmed' ? 'on' : '') + '">🤔 待確認</button>' +
         '<button type="button" data-st="confirmed" class="' + (it.status === 'confirmed' ? 'on' : '') + '">✅ 已確定</button></div></div>' +
-      '<div class="sheet-actions">' + (item ? '<button type="button" class="btn danger" id="delBtn">刪除</button>' : '') +
+      '<div class="sheet-actions">' + (item ? '<button type="button" class="btn danger" id="delBtn">刪除</button>' +
+        '<button type="button" class="btn ghost" id="unschedBtn" title="計畫有變，放回候選清單重新討論">↩ 移回候選</button>' : '') +
       '<span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button>' +
       '<button type="submit" class="btn primary">儲存</button></div></form>';
 
     openModal(html, function (root) {
+      if (item) $('#unschedBtn', root).onclick = function () {
+        if (!confirm('把「' + item.title + '」移回候選？\n\n會從行程拿掉，放回候選清單（原本的投票、留言、照片都會保留），日期和時間不會保留。')) return;
+        closeModal();
+        guarded(function (force) { return api.unscheduleEvent(item.id, opts(item, force)); }, '已移回候選', 'move');
+      };
       var cat = it.category || 'sight', st = it.status === 'confirmed' ? 'confirmed' : 'tentative', booking = it.booking || '';
       bindSeg($('#catSeg', root), 'cat', function (v) { cat = v; });
       bindSeg($('#bookSeg', root), 'book', function (v) { booking = v; });
@@ -1995,7 +2062,7 @@
   $('#histBtn').addEventListener('click', openHistory);
   $('#meSelect').addEventListener('change', function (e) { setMe(e.target.value); render(); });
   $('#fab').addEventListener('click', function () {
-    if (state.tab === 'itinerary') openEventForm(null);
+    if (state.tab === 'itinerary') openAddChooser();
     else if (state.tab === 'candidates') openCandidateForm(null);
     else if (state.tab === 'checklist') openChecklistForm(null);
     else if (state.tab === 'expenses') {
@@ -2034,7 +2101,7 @@
       return;
     }
     var add = e.target.closest('[data-add-date]');
-    if (add) { openEventForm(null, add.dataset.addDate); return; }
+    if (add) { openAddChooser(add.dataset.addDate); return; }
     var vb = e.target.closest('[data-vote]');
     if (vb) { castVote(vb.dataset.cid, Number(vb.dataset.vote)); return; }
     var ec = e.target.closest('[data-edit-cand]');
