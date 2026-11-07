@@ -111,7 +111,15 @@
     flex: none; display: inline-flex; align-items: center; gap: 6px;
     background: rgba(255,255,255,.2); border-radius: 999px; padding: 3px 4px 3px 12px; font-size: 13px;
   }
-  .theme-btn { flex: none; border: 0; background: rgba(255,255,255,.2); width: 32px; height: 32px; border-radius: 50%; font-size: 16px; line-height: 1; padding: 0; }
+  .theme-sw { flex: none; position: relative; width: 54px; height: 28px; padding: 0; border-radius: 999px; border: 1.5px solid rgba(255,255,255,.75);
+    background: rgba(255,255,255,.22); transition: background .25s, border-color .25s; }
+  .theme-sw .sw-ico { position: absolute; top: 50%; transform: translateY(-50%); font-size: 12px; line-height: 1; opacity: .75; }
+  .theme-sw .sw-ico.sun { left: 6px; } .theme-sw .sw-ico.moon { right: 6px; }
+  .theme-sw .sw-knob { position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: #fff; color: #2b2a28;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+    transition: transform .25s cubic-bezier(.3,.7,.4,1), background .25s; }
+  .theme-sw.dark { background: #1c1b19; border-color: #4a4640; }
+  .theme-sw.dark .sw-knob { transform: translateX(26px); background: #3a3732; }
   .me select { background: rgba(255,255,255,.95); color: #2b2a28; border: 0; border-radius: 999px; padding: 4px 8px; max-width: 120px; }
   .subhead { max-width: 720px; margin: 0 auto; padding: 12px 16px 0; }
   .trip-info { font-size: 13px; font-weight: 600; display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; }
@@ -127,34 +135,23 @@
 
   .main { max-width: 720px; margin: 0 auto; padding: 12px 16px 16px; }
 
-  /* 動畫 A：小飛機沿虛線航道飛過標題列 */
-  .flight { position: absolute; inset: 0; pointer-events: none; }
-  .flight::before {
-    content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 0;
-    border-top: 2px dashed rgba(255,255,255,.28);
-  }
-  .plane { position: absolute; top: 1px; left: -30px; width: 16px; height: 16px; color: rgba(255,255,255,.8); transform: rotate(90deg); animation: fly 16s linear infinite; }
-  @keyframes fly {
-    0% { left: -30px; transform: rotate(90deg) translateX(0); }
-    50% { transform: rotate(90deg) translateX(-3px); }
-    100% { left: calc(100% + 30px); transform: rotate(90deg) translateX(0); }
-  }
-  /* 動畫 C：嘟嘟車在倒數旁邊晃來晃去 */
-  .tuktuk { display: inline-block; animation: tuk 2.6s ease-in-out infinite; transform-origin: 50% 90%; }
-  @keyframes tuk {
-    0%, 100% { transform: translateX(0) rotate(0); }
-    20% { transform: translateX(3px) rotate(-4deg); }
-    40% { transform: translateX(6px) rotate(0); }
-    60% { transform: translateX(3px) rotate(4deg); }
-    80% { transform: translateX(0) rotate(-2deg); }
-  }
+  /* 動畫：嘟嘟車沿著標題列底邊慢慢開過去，車尾冒小白煙 */
+  .road { position: absolute; inset: 0; pointer-events: none; }
+  .tuk-run { position: absolute; bottom: 4px; left: -40px; font-size: 16px; line-height: 1; opacity: .9; animation: drive 20s linear infinite; }
+  .tuk-car { display: inline-block; transform: scaleX(-1); animation: bump .5s ease-in-out infinite alternate; }
+  @keyframes drive { from { left: -40px; } to { left: calc(100% + 40px); } }
+  @keyframes bump { from { transform: scaleX(-1) translateY(0); } to { transform: scaleX(-1) translateY(-1.5px); } }
+  .puff { position: absolute; left: -4px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.75); opacity: 0; animation: puff 1.8s ease-out infinite; }
+  .puff.p2 { animation-delay: .9s; }
+  @keyframes puff { 0% { opacity: 0; transform: translate(0, 0) scale(.4); } 15% { opacity: .8; } 100% { opacity: 0; transform: translate(-14px, -6px) scale(1.4); } }
   /* 動畫 D：操作回饋 */
   .pop { animation: pop .35s ease-out; }
   @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
   @media (prefers-reduced-motion: reduce) {
-    .plane, .tuktuk, .pop, .day-fade, .toast, .sheet { animation: none !important; }
+    .tuk-run, .tuk-car, .puff, .pop, .day-fade, .day-in-l, .day-in-r, .toast, .sheet { animation: none !important; }
     .day-pill.anim, .ripple-dot { transition: none !important; animation: none !important; }
-    .plane { display: none; }
+    .road { display: none; }
+    .theme-sw .sw-knob { transition: none !important; }
   }
 
   /* Tabs (bottom nav) */
@@ -193,8 +190,12 @@
   .day-tabs button.on { background: transparent; border-color: transparent; color: var(--bg); }
   .day-pill { position: absolute; left: 0; top: 0; z-index: 0; border-radius: 12px; background: var(--text); pointer-events: none; }
   .day-pill.anim { transition: transform .3s cubic-bezier(.3, .7, .2, 1), width .3s; }
-  .day-fade { animation: dayFade .25s ease-out; }
-  @keyframes dayFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .day-fade { animation: dayFade .18s ease-out; }
+  @keyframes dayFade { from { opacity: 0; } to { opacity: 1; } }
+  .day-in-r { animation: dayInR .22s ease-out; }
+  .day-in-l { animation: dayInL .22s ease-out; }
+  @keyframes dayInR { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+  @keyframes dayInL { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
   .day-tabs button.on small { color: inherit; opacity: .75; }
   .day-tabs button.today:not(.on) { border-color: var(--accent); }
   .nav-link { display: inline-flex; align-items: center; gap: 6px; }
@@ -574,12 +575,10 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="flight" aria-hidden="true">
-      <svg class="plane" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
-    </div>
+    <div class="road" aria-hidden="true"><span class="tuk-run"><span class="puff"></span><span class="puff p2"></span><span class="tuk-car">🛺</span></span></div>
     <div class="topbar-inner">
       <h1 id="tripName">旅行共編</h1>
-      <button type="button" class="theme-btn" id="themeBtn" aria-label="切換淺色／深色">🌙</button>
+      <button type="button" class="theme-sw" id="themeBtn" role="switch" aria-checked="false" aria-label="深色模式"><span class="sw-ico sun">☀️</span><span class="sw-ico moon">🌙</span><span class="sw-knob" id="themeKnob">☀️</span></button>
       <label class="me">我是
         <select id="meSelect" aria-label="選擇你的名字"></select>
       </label>
@@ -630,7 +629,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-11-07.5';
+  var APP_VERSION = '2026-11-07.6';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
@@ -1293,8 +1292,8 @@
       var nth = Math.round((today0 - sd) / 86400000) + 1;
       info = '<span>📅 ' + esc(fmtShort(s.startDate)) + '–' + esc(fmtShort(s.endDate)) + '</span><span class="dot">・</span>' +
         '<span>共 ' + days + ' 天</span><span class="dot">・</span>' +
-        (left > 0 ? '<span class="countdown">倒數 ' + left + ' 天 <span class="tuktuk" aria-hidden="true">🛺</span></span>'
-          : (nth >= 1 && nth <= days ? '<span class="countdown">旅行第 ' + nth + ' 天 <span class="tuktuk" aria-hidden="true">🛺</span></span>'
+        (left > 0 ? '<span class="countdown">倒數 ' + left + ' 天</span>'
+          : (nth >= 1 && nth <= days ? '<span class="countdown">旅行第 ' + nth + ' 天</span>'
           : '<span class="muted">旅程結束，歡迎回家</span>'));
     } else {
       info = '<span class="muted">還沒設定日期，到「設定」填寫出發與回程日</span>';
@@ -1361,7 +1360,7 @@
           '</button>';
       }).join('') + '</div>';
     if (sel !== 'all') keys = keys.filter(function (k) { return (k || 'undated') === sel; });
-    html += '<div id="dayBody" class="' + (state.dayFade ? 'day-fade' : '') + '">';
+    html += '<div id="dayBody" class="' + (state.dayFade || '') + '">';
     state.dayFade = false;
     state.daySlide = '';
     keys.forEach(function (k) {
@@ -1444,8 +1443,10 @@
   }
   function selectDay(day) {
     if (state.day === day) return;
+    var order = [].map.call(document.querySelectorAll('#dayTabs button[data-day]'), function (b) { return b.dataset.day; });
+    var from = order.indexOf(state.day), to = order.indexOf(day);
+    state.dayFade = day === 'all' || state.day === 'all' || from < 0 || to < 0 ? 'day-fade' : (to > from ? 'day-in-r' : 'day-in-l');
     state.day = day;
-    state.dayFade = true;
     try { localStorage.setItem('trip-day', day); } catch (e) {}
     renderItinerary();
   }
@@ -2869,8 +2870,9 @@
   }
   function updateThemeBtn() {
     var d = isDark(), b = $('#themeBtn');
-    b.textContent = d ? '☀️' : '🌙';
-    b.setAttribute('aria-label', d ? '切換成淺色' : '切換成深色');
+    b.classList.toggle('dark', d);
+    b.setAttribute('aria-checked', d ? 'true' : 'false');
+    $('#themeKnob').textContent = d ? '🌙' : '☀️';
   }
   $('#themeBtn').addEventListener('click', function () { applyTheme(isDark() ? 'light' : 'dark'); });
   if (window.matchMedia) {
