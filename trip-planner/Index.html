@@ -88,6 +88,9 @@
   .toolbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--muted); }
   .toolbar .spacer { flex: 1; }
   .toolbar button { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+  .toolbar button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .tab { position: relative; }
+  .tab-badge { position: absolute; top: 4px; left: calc(50% + 6px); background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 0 5px; line-height: 16px; min-width: 16px; text-align: center; }
 
   .main { max-width: 720px; margin: 0 auto; padding: 12px 16px 16px; }
 
@@ -354,6 +357,53 @@
   .pin-input:focus { border-color: var(--accent); }
   .pin-msg { min-height: 20px; font-size: 13px; color: var(--danger); text-align: center; }
 
+  /* 待辦頁 */
+  .todo-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+  .todo-head h2 { margin: 0; font-size: 18px; }
+  .todo-sum { font-size: 13px; color: var(--muted); }
+  .todo-sum b { color: var(--text); }
+  .todo-sum .bad { color: var(--danger); font-weight: 700; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips button { flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+  .chips button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .tlist { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 2px 14px; margin-bottom: 12px; }
+  .gh { font-size: 12px; font-weight: 700; color: var(--muted); padding: 10px 0 2px; letter-spacing: .5px; }
+  .gh.over { color: var(--danger); } .gh.soon { color: var(--accent); }
+  .titem { position: relative; display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); cursor: pointer; transition: opacity .25s, background .6s; }
+  .titem.mine::before { content: ""; position: absolute; left: -14px; top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0; background: var(--c-transport); }
+  .titem.checked { opacity: .55; }
+  .titem.checked .ttitle { text-decoration: line-through; color: var(--muted); }
+  .titem.flash { background: var(--accent-soft); }
+  .tbox { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #cfc8bc; background: var(--surface); display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; padding: 0; font-size: 14px; transition: background .2s, border-color .2s; }
+  .tbox.on { background: var(--ok); border-color: var(--ok); }
+  .tmain { flex: 1; min-width: 0; }
+  .ttitle { font-weight: 600; word-break: break-word; }
+  .titem .sub { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .titem .book { color: #3d74b8; font-weight: 600; }
+  .st { flex: none; font-size: 11px; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  .st.mine { background: #e8f0fb; color: #3d74b8; font-weight: 700; }
+  .st.busy { color: var(--muted); }
+  .st.free { color: var(--muted); border: 1px dashed #cfc8bc; }
+  .tdue { flex: none; min-width: 62px; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .tdue.over { color: var(--danger); font-weight: 700; } .tdue.soon { color: var(--accent); font-weight: 700; }
+  .fold { width: 100%; border: 0; background: none; text-align: left; padding: 10px 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+  .sugg { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px dashed var(--line); border-radius: 14px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .sugg button { flex: none; margin-left: auto; border: 0; background: none; color: var(--accent); font-weight: 700; }
+  .composer { position: fixed; left: 0; right: 0; bottom: calc(62px + env(safe-area-inset-bottom)); z-index: 19; display: flex; gap: 8px;
+    max-width: 560px; margin: 0 auto; padding: 5px 5px 5px 16px; width: calc(100% - 24px); background: var(--surface); border-radius: 999px; box-shadow: 0 4px 18px rgba(60,50,30,.16); }
+  .composer input { flex: 1; min-width: 0; border: 0; outline: none; background: none; }
+  .composer button { flex: none; border: 0; background: var(--accent); color: #fff; border-radius: 999px; width: 38px; height: 38px; font-size: 20px; }
+  body.with-composer { padding-bottom: calc(160px + env(safe-area-inset-bottom)); }
+  .lbl { font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  .opts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .opts button { border: 1px solid var(--line); background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+  .opts button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .opts button:disabled { opacity: .4; }
+  .people-opts { margin-top: 8px; }
+  .due-input { margin-top: 8px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 8px 10px; }
+  #whoNow { margin-top: 6px; font-size: 12px; }
+
   /* History */
   .hist { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .hist:last-child { border-bottom: 0; }
@@ -435,10 +485,32 @@
     display: flex; align-items: flex-end; justify-content: center;
   }
   .sheet {
-    background: var(--surface); width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto;
-    border-radius: 20px 20px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    background: var(--surface); width: 100%; max-width: 560px; max-height: 92vh; overflow: hidden;
+    border-radius: 20px 20px 0 0; display: flex; flex-direction: column;
     animation: up .18s ease-out;
   }
+  .sheet-bar {
+    flex: none; display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .bar-title { flex: 1; min-width: 0; text-align: center; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sheet-bar button { border: 0; background: none; font-size: 15px; padding: 4px 2px; min-width: 56px; }
+  .bar-cancel { color: var(--muted); text-align: left; }
+  .bar-ok { color: var(--accent); font-weight: 700; text-align: right; }
+  .bar-ok:disabled { opacity: .4; }
+  .bar-ok-space { min-width: 56px; }
+  .sheet-body { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 14px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet-actions.bottom-zone { justify-content: center; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .sheet-actions.bottom-zone .btn.danger { padding-left: 16px; }
+  .sheet-actions.bottom-zone .spacer { display: none; }
+  body.modal-open { position: fixed; left: 0; right: 0; overflow: hidden; }
+  .confirm-bd { position: fixed; inset: 0; z-index: 70; background: rgba(20,15,10,.35); display: flex; align-items: center; justify-content: center; }
+  .confirm-box { background: var(--surface); border-radius: 16px; width: 280px; padding: 18px 16px 12px; text-align: center; box-shadow: var(--shadow); }
+  .confirm-box p { margin: 0 0 14px; font-weight: 600; }
+  .confirm-btns { display: flex; gap: 8px; }
+  .confirm-btns button { flex: 1; border: 0; border-radius: 10px; padding: 9px; font-weight: 600; }
+  .confirm-btns .keep { background: var(--surface-2); color: var(--text); }
+  .confirm-btns .drop { background: var(--danger); color: #fff; }
   @media (min-width: 640px) {
     .backdrop { align-items: center; }
     .sheet { border-radius: 20px; }
@@ -478,6 +550,7 @@
       <span class="spacer"></span>
       <button id="histBtn" type="button">🕘 修改紀錄</button>
       <button id="refreshBtn" type="button">↻ 重新整理</button>
+      <button id="settingsBtn" type="button">⚙️ 設定</button>
     </div>
   </div>
 
@@ -491,14 +564,19 @@
   </main>
 
   <button class="fab" id="fab" type="button" aria-label="新增">＋</button>
+  <form class="composer hidden" id="todoComposer" autocomplete="off">
+    <input name="t" maxlength="100" placeholder="新增待辦…（預設本週、你負責）" aria-label="新增待辦">
+    <button type="submit" aria-label="新增">＋</button>
+  </form>
+  <div id="confirmRoot"></div>
 
   <nav class="tabs">
     <div class="tabs-inner">
       <button class="tab active" data-tab="itinerary" type="button"><span class="ic">🗓️</span>行程</button>
       <button class="tab" data-tab="candidates" type="button"><span class="ic">📌</span>候選</button>
-      <button class="tab" data-tab="checklist" type="button"><span class="ic">🎒</span>清單</button>
+      <button class="tab" data-tab="todo" type="button"><span class="ic">✅</span>待辦<span class="tab-badge hidden" id="todoBadge"></span></button>
+      <button class="tab" data-tab="pack" type="button"><span class="ic">🎒</span>行李</button>
       <button class="tab" data-tab="expenses" type="button"><span class="ic">💰</span>分攤</button>
-      <button class="tab" data-tab="settings" type="button"><span class="ic">⚙️</span>設定</button>
     </div>
   </nav>
 
@@ -510,7 +588,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-11-07.2';
+  var APP_VERSION = '2026-11-07.3';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
@@ -1188,11 +1266,17 @@
     }).join('');
 
     if (state.room && (state.tab !== 'checklist' || state.listView !== 'pack')) lockRoom('已離開房間，門已鎖上 🔒');
-    document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === state.tab); });
+    var navKey = state.tab === 'checklist' ? state.listView : state.tab;
+    document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === navKey); });
+    $('#settingsBtn').classList.toggle('on', state.tab === 'settings');
+    var onTodo = state.tab === 'checklist' && state.listView === 'todo';
+    $('#todoComposer').classList.toggle('hidden', !onTodo);
+    document.body.classList.toggle('with-composer', onTodo);
+    updateTodoBadge();
     ['itinerary', 'candidates', 'checklist', 'expenses', 'settings'].forEach(function (t) {
       $('#view-' + t).classList.toggle('hidden', t !== state.tab);
     });
-    $('#fab').classList.toggle('hidden', state.tab === 'settings');
+    $('#fab').classList.toggle('hidden', state.tab === 'settings' || onTodo);
 
     if (state.tab === 'itinerary') renderItinerary();
     if (state.tab === 'candidates') renderCandidates();
@@ -1268,6 +1352,16 @@
       bar.scrollLeft = on.offsetLeft - bar.clientWidth / 2 + on.offsetWidth / 2;
       state.dayScrolled = sel;
     }
+  }
+
+  /* ---------- 底部頁籤 ---------- */
+  function goTab(t) {
+    var wasTodo = state.tab === 'checklist' && state.listView === 'todo';
+    if (t === 'todo' || t === 'pack') { state.tab = 'checklist'; state.listView = t; } else state.tab = t;
+    var isTodo = state.tab === 'checklist' && state.listView === 'todo';
+    if (wasTodo && !isTodo) state.todoStay = {};  // 離開待辦頁：剛打勾的才收進「已完成」
+    render();
+    window.scrollTo(0, 0);
   }
 
   /* ---------- 天數切換 ---------- */
@@ -1636,7 +1730,7 @@
     ['personal', '外套／雨具'], ['shared', '萬用轉接頭'], ['shared', '網卡／Wi-Fi 分享器'], ['shared', '常備藥品包'],
     ['shared', '延長線／多孔充電器']
   ];
-  var SUGGESTED_TODO = ['訂機票', '訂住宿', '買旅遊保險', '確認護照效期', '換外幣', '買網卡／租 Wi-Fi', '預約餐廳／門票', '辦理線上報到'];
+
 
   function checkedBy(it) {
     try { return JSON.parse(it.checkedBy || '[]') || []; } catch (e) { return []; }
@@ -1645,75 +1739,230 @@
   function isChecked(it, me) { return isPersonalPack(it) ? checkedBy(it).indexOf(me) >= 0 : it.done === '1'; }
 
   function renderChecklist() {
-    var me = getMe(), ms = members(), view = state.listView;
+    var view = state.listView;
     var items = state.checklist.filter(function (x) { return (x.kind || 'pack') === view; });
-    var html = '<div class="section-title"><h2>' + (view === 'pack' ? '行李清單' : '出發前待辦') + '</h2><span class="hint">點勾選框打勾</span></div>' +
-      '<div class="switch"><button type="button" data-listview="pack" class="' + (view === 'pack' ? 'on' : '') + '">🎒 行李</button>' +
-      '<button type="button" data-listview="todo" class="' + (view === 'todo' ? 'on' : '') + '">✅ 待辦</button></div>';
-
     if (view === 'pack') {
-      $('#view-checklist').innerHTML = html + (state.room ? roomHtml() : packHtml(items));
+      var head = '<div class="section-title"><h2>行李清單</h2><span class="hint">共用物品大家看得到，私人行李放房間</span></div>';
+      $('#view-checklist').innerHTML = head + (state.room ? roomHtml() : packHtml(items));
       if (state.room) touchRoom();
       return;
     }
+    $('#view-checklist').innerHTML = todoHtml(items);
+  }
 
-    if (!items.length) {
-      if (view === 'todo') html += bookingTodoHtml();
-      html += '<div class="empty">' + (view === 'pack' ? '還沒有行李項目' : '還沒有待辦事項') +
-        '<br><br><button type="button" class="btn primary" id="importSuggest">一鍵加入常用' + (view === 'pack' ? '行李' : '待辦') + '</button>' +
-        '<div class="help" style="margin-top:8px">也可以按右下角 ＋ 自己新增</div></div>';
-      $('#view-checklist').innerHTML = html;
-      return;
-    }
+  /* ---------- 出發前待辦 ---------- */
+  var SUGGESTED_TODO = [['訂機票', 60], ['訂住宿', 45], ['確認護照效期', 30], ['買網卡／eSIM', 14], ['預約餐廳／門票', 14],
+    ['換外幣', 7], ['買旅遊保險', 3], ['填泰國入境卡（TDAC）', 3], ['線上報到', 1]];
+  function today0() { return new Date(new Date().toDateString()); }
+  function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function startDate0() { return parseDate(state.settings.startDate); }
+  function tripStarted() { var sd = startDate0(); return !!sd && today0() >= sd; }
+  /** 期限快速選項 → 日期 */
+  function duePreset(key) {
+    var t = today0(), sd = startDate0();
+    if (key === 'today') return fmtISO(t);
+    if (key === 'week') return fmtISO(addDays(t, (7 - t.getDay()) % 7));
+    if (key === 'b7') return sd ? fmtISO(addDays(sd, -7)) : '';
+    if (key === 'b1') return sd ? fmtISO(addDays(sd, -1)) : '';
+    return '';
+  }
+  function presetOf(due) {
+    if (!due) return 'none';
+    var keys = ['today', 'week', 'b7', 'b1'];
+    for (var i = 0; i < keys.length; i++) if (duePreset(keys[i]) === due) return keys[i];
+    return 'custom';
+  }
+  /** 期限 → 分組與顯示文字（用中性的說法，不帶責怪語氣） */
+  function dueInfo(due) {
+    var d = parseDate(due);
+    if (!d) return { group: 'none', text: '—', cls: '' };
+    var diff = Math.round((d - today0()) / 86400000), sd = startDate0();
+    if (diff < 0) return { group: 'over', text: '已超過 ' + (-diff) + ' 天', cls: 'over' };
+    if (diff <= 7) return { group: 'soon', text: diff === 0 ? '今天' : (diff === 1 ? '明天' : diff + ' 天後'), cls: 'soon' };
+    if (sd && d < sd) return { group: 'later', text: '出發前 ' + Math.round((sd - d) / 86400000) + ' 天', cls: '' };
+    return { group: 'later', text: (d.getMonth() + 1) + '/' + d.getDate(), cls: '' };
+  }
+  /** 待辦清單的資料：一般待辦＋行程裡需要預約的（建議在行程前 7 天訂好） */
+  function todoRows() {
+    var me = getMe(), stay = state.todoStay || {}, rows = [];
+    state.checklist.filter(function (x) { return x.kind === 'todo'; }).forEach(function (it) {
+      rows.push({ key: it.id, kind: 'todo', it: it, title: it.title, note: it.note, due: it.dueDate, done: it.done === '1',
+        stay: !!stay[it.id], mine: !!me && it.owner === me, owner: it.owner });
+    });
+    state.itinerary.filter(function (x) { return x.booking === 'need' || x.booking === 'booked'; }).forEach(function (it) {
+      var d = parseDate(it.date);
+      rows.push({ key: 'b:' + it.id, kind: 'book', it: it, title: it.title, due: d ? fmtISO(addDays(d, -7)) : '',
+        done: it.booking === 'booked', stay: !!stay['b:' + it.id], mine: false, owner: '' });
+    });
+    return rows;
+  }
+  function updateTodoBadge() {
+    var n = todoRows().filter(function (r) { return !r.done; }).length;
+    var el = $('#todoBadge');
+    el.textContent = n > 99 ? '99+' : n;
+    el.classList.toggle('hidden', !n || tripStarted());  // 旅行開始後不再顯示紅點
+  }
+  function todoHtml() {
+    var rows = todoRows(), f = state.todoFilter || 'all';
+    var pending = rows.filter(function (r) { return !r.done || r.stay; });
+    var open = rows.filter(function (r) { return !r.done; });
+    var done = rows.filter(function (r) { return r.done && !r.stay; });
+    var overN = open.filter(function (r) { return dueInfo(r.due).group === 'over'; }).length;
+    var cnt = { all: open.length, mine: open.filter(function (r) { return r.mine; }).length,
+      free: open.filter(function (r) { return r.kind === 'todo' && !r.owner; }).length, done: done.length };
+    var html = '<div class="todo-head"><h2>出發前待辦</h2><span class="todo-sum">' +
+      (open.length ? '<b>還有 ' + open.length + ' 件</b>' + (overN ? '・<span class="bad">⏰ ' + overN + ' 件該處理了</span>' : '') : '<b>都處理好了 🎉</b>') + '</span></div>';
+    html += '<div class="chips todo-chips">' + [['all', '全部'], ['mine', '我負責的'], ['free', '還沒人處理'], ['done', '已完成']].map(function (c) {
+      return '<button type="button" data-tfilter="' + c[0] + '" class="' + (f === c[0] ? 'on' : '') + '">' + c[1] + ' ' + cnt[c[0]] + '</button>';
+    }).join('') + '</div>';
 
-    html += '<label class="toggle-mine"><input type="checkbox" id="mineOnly"' + (state.listMine ? ' checked' : '') + '> 只看跟我有關的</label>';
-
-    if (view === 'pack') {
-      var personal = items.filter(isPersonalPack);
-      var shared = items.filter(function (x) { return !isPersonalPack(x); });
-      if (state.listMine && me) shared = shared.filter(function (x) { return x.owner === me; });
-      var mine = personal.length + items.filter(function (x) { return !isPersonalPack(x) && x.owner === me; }).length;
-      var mineDone = personal.filter(function (x) { return isChecked(x, me); }).length +
-        items.filter(function (x) { return !isPersonalPack(x) && x.owner === me && x.done === '1'; }).length;
-      if (me) {
-        var pct = mine ? Math.round(mineDone / mine * 100) : 0;
-        html += '<div class="card"><div style="display:flex;justify-content:space-between"><b>' + esc(me) + ' 的打包進度</b><span>' + mineDone + ' / ' + mine + '</span></div>' +
-          '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
-          (mine && mineDone === mine ? '<div class="help">全部打包好了，出發吧！✈️</div>' : '') + '</div>';
-      }
-      if (personal.length) {
-        html += '<div class="card list-group"><h3>🧳 每人都要帶 <small>各自勾選</small></h3>' + personal.map(function (it) {
-          var by = checkedBy(it);
-          var whoHtml = '<span class="who">' + ms.map(function (m) {
-            return '<span class="' + (by.indexOf(m) >= 0 ? 'ok' : '') + '">' + (by.indexOf(m) >= 0 ? '✓' : '') + esc(m) + '</span>';
-          }).join('') + '</span>';
-          return chkRow(it, isChecked(it, me), whoHtml + '<span>' + by.filter(function (n) { return ms.indexOf(n) >= 0; }).length + '/' + ms.length + ' 人已準備</span>');
-        }).join('') + '</div>';
-      }
-      if (shared.length) {
-        html += '<div class="card list-group"><h3>🤝 共用物品 <small>一人負責帶</small></h3>' + shared.map(function (it) {
-          return chkRow(it, it.done === '1', it.owner ? '<span class="owner-tag">' + esc(it.owner) + ' 負責</span>' : '<span class="late">還沒有人負責</span>');
-        }).join('') + '</div>';
-      }
-    } else {
-      html += bookingTodoHtml();
-      var today = fmtISO(new Date());
-      var todos = items.slice();
-      if (state.listMine && me) todos = todos.filter(function (x) { return x.owner === me || !x.owner; });
-      todos.sort(function (a, b) {
-        return (a.done === '1') - (b.done === '1') || (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+    var shown = pending.filter(function (r) {
+      if (f === 'mine') return r.mine;
+      if (f === 'free') return r.kind === 'todo' && !r.owner;
+      return f === 'all';
+    });
+    var groups = [['over', '⏰ 該處理了'], ['soon', '🔥 7 天內'], ['later', '之後'], ['none', '沒有期限']];
+    var body = '';
+    if (f !== 'done') {
+      groups.forEach(function (g) {
+        var list = shown.filter(function (r) { return dueInfo(r.due).group === g[0]; })
+          .sort(function (a, b) { return (a.due || '').localeCompare(b.due || '') || (a.it.createdAt || a.it.updatedAt || '').localeCompare(b.it.createdAt || b.it.updatedAt || ''); });
+        if (!list.length) return;
+        body += '<div class="gh ' + g[0] + '">' + g[1] + '</div>' + list.map(todoRowHtml).join('');
       });
-      var doneCount = items.filter(function (x) { return x.done === '1'; }).length;
-      html += '<div class="card"><div style="display:flex;justify-content:space-between"><b>整體進度</b><span>' + doneCount + ' / ' + items.length + '</span></div>' +
-        '<div class="progress"><div style="width:' + Math.round(doneCount / items.length * 100) + '%"></div></div></div>';
-      html += '<div class="card list-group">' + (todos.length ? todos.map(function (it) {
-        var late = it.done !== '1' && it.dueDate && it.dueDate < today;
-        var sub = (it.owner ? '<span class="owner-tag">' + esc(it.owner) + '</span>' : '<span>未指派</span>') +
-          (it.dueDate ? '<span class="' + (late ? 'late' : '') + '">' + (late ? '⚠️ 已過期 ' : '📅 ') + esc(fmtShort(it.dueDate)) + '</span>' : '');
-        return chkRow(it, it.done === '1', sub);
-      }).join('') : '<div class="help">沒有跟你有關的待辦</div>') + '</div>';
+      if (!body) body = '<div class="help" style="padding:16px 0;text-align:center">' + (f === 'all' ? '目前沒有待辦，用下面的輸入框新增吧' : '這裡沒有待辦') + '</div>';
     }
-    $('#view-checklist').innerHTML = html;
+    var doneOpen = f === 'done' || state.doneOpen;
+    body += '<button type="button" class="fold" id="doneFold">✅ 已完成 ' + done.length + '　' + (doneOpen ? '▾' : '▸') + '</button>';
+    if (doneOpen) body += done.length ? done.map(todoRowHtml).join('') : '<div class="help" style="padding-bottom:10px">還沒有完成的待辦</div>';
+    html += '<div class="tlist">' + body + '</div>';
+
+    // 常見待辦建議：依出發日自動帶期限，已經有的不會重複
+    var have = {};
+    state.checklist.forEach(function (x) { if (x.kind === 'todo') have[String(x.title).trim()] = true; });
+    var missing = SUGGESTED_TODO.filter(function (x) { return !have[x[0]]; });
+    if (missing.length) {
+      html += '<div class="sugg"><span>💡 還有 ' + missing.length + ' 個常見待辦沒加（' + esc(missing.slice(0, 3).map(function (x) { return x[0]; }).join('、')) +
+        (missing.length > 3 ? '…' : '') + '）</span><button type="button" id="todoSuggest">加入</button></div>';
+    }
+    return html;
+  }
+  function todoRowHtml(r) {
+    var info = dueInfo(r.due), on = r.done;
+    var pill = r.kind === 'book' ? '' : (r.mine ? '<span class="st mine">我負責</span>' : (r.owner ? '<span class="st busy">👤 有人處理中</span>' : '<span class="st free">還沒人處理</span>'));
+    var sub = r.kind === 'book'
+      ? '<div class="sub"><span class="book">📅 ' + (on ? '已預約' : '待預約') + '</span>' + (r.it.date ? '<span>行程 ' + esc(fmtShort(r.it.date)) + (r.it.time ? ' ' + esc(r.it.time) : '') + '</span>' : '') + '</div>'
+      : (r.note ? '<div class="sub">' + esc(r.note) + '</div>' : '');
+    var showDue = !r.done || r.stay;
+    return '<div class="titem' + (r.mine ? ' mine' : '') + (on ? ' checked' : '') + (state.todoFlash === r.key ? ' flash' : '') + '" data-tedit="' + esc(r.key) + '">' +
+      '<button type="button" class="tbox' + (on ? ' on' : '') + '" data-tcheck="' + esc(r.key) + '" aria-label="' + (on ? '取消完成' : '完成') + '">' + (on ? '✓' : '') + '</button>' +
+      '<div class="tmain"><div class="ttitle">' + esc(r.title) + '</div>' + sub + '</div>' +
+      (showDue ? pill + '<div class="tdue ' + info.cls + '">' + info.text + '</div>' : '') + '</div>';
+  }
+  function toggleTodo(key) {
+    var r = todoRows().find(function (x) { return x.key === key; });
+    if (!r) return;
+    var next = !r.done;
+    state.todoStay = state.todoStay || {};
+    if (next) state.todoStay[key] = true;        // 打勾後先留在原地，離開這頁才收進「已完成」
+    else { delete state.todoStay[key]; state.todoFlash = key; setTimeout(function () { if (state.todoFlash === key) { state.todoFlash = ''; } }, 1500); }
+    if (r.kind === 'todo') {
+      r.it.done = next ? '1' : '';
+      renderChecklist(); updateTodoBadge();
+      popEl('[data-tcheck="' + cssEsc(key) + '"]');
+      mutate(api.toggleCheck(r.it.id, getMe(), next)).catch(function () { refresh(true); });
+    } else {
+      var item = r.it, data = {};
+      Object.keys(item).forEach(function (k) { data[k] = item[k]; });
+      data.booking = next ? 'booked' : 'need';
+      data.author = getMe();
+      item.booking = data.booking;
+      renderChecklist(); updateTodoBadge();
+      popEl('[data-tcheck="' + cssEsc(key) + '"]');
+      guarded(function (force) { return api.saveItem('itinerary', data, opts(item, force)); }, next ? '已標記為已預約' : '改回待預約');
+    }
+  }
+  function addSuggestedTodos() {
+    var have = {}, sd = startDate0(), me = getMe();
+    state.checklist.forEach(function (x) { if (x.kind === 'todo') have[String(x.title).trim()] = true; });
+    var items = SUGGESTED_TODO.filter(function (x) { return !have[x[0]]; }).map(function (x) {
+      return { kind: 'todo', scope: '', title: x[0], owner: '', dueDate: sd ? fmtISO(addDays(sd, -x[1])) : '', author: me };
+    });
+    if (!items.length) return;
+    mutate(api.addItems('checklist', items, opts(null)), '已加入 ' + items.length + ' 個常見待辦' + (sd ? '，期限依出發日自動帶入' : ''));
+  }
+  /** 待辦的編輯視窗：期限、誰處理、備註；「誰處理」的名字只在這裡看得到 */
+  function openTodoSheet(item) {
+    var me = getMe(), ms = members(), sd = startDate0();
+    var it = item || { title: '', dueDate: duePreset('week'), owner: me, note: '' };
+    var preset = presetOf(it.dueDate);
+    var who = !it.owner ? 'none' : (me && it.owner === me ? 'me' : 'other');
+    var others = ms.filter(function (m) { return m !== me; });
+    if (it.owner && it.owner !== me && others.indexOf(it.owner) < 0) others.push(it.owner);
+    var dueBtn = function (k, label, off) { return '<button type="button" data-due="' + k + '" class="' + (preset === k ? 'on' : '') + '"' + (off ? ' disabled title="先到設定填出發日"' : '') + '>' + label + '</button>'; };
+    var html = '<h3>' + (item ? esc(item.title) : '新增待辦') + '</h3><form id="todoForm">' +
+      '<div class="field"><label>事項</label><input name="title" required maxlength="100" value="' + esc(it.title) + '" placeholder="例如：買旅遊保險"></div>' +
+      '<div class="lbl">期限</div><div class="opts" id="dueOpts">' + dueBtn('today', '今天') + dueBtn('week', '本週') + dueBtn('b7', '出發前 1 週', !sd) + dueBtn('b1', '出發前 1 天', !sd) +
+        dueBtn('custom', '📅 自訂') + dueBtn('none', '不設') + '</div>' +
+      '<input type="date" name="due" class="due-input" value="' + esc(it.dueDate) + '"' + (preset === 'custom' ? '' : ' style="display:none"') + '>' +
+      '<div class="lbl">誰處理</div><div class="opts" id="whoOpts">' +
+        (me ? '<button type="button" data-who="me" class="' + (who === 'me' ? 'on' : '') + '">🙋 我來處理</button>' : '') +
+        '<button type="button" data-who="other" class="' + (who === 'other' ? 'on' : '') + '">交給別人…</button>' +
+        '<button type="button" data-who="none" class="' + (who === 'none' ? 'on' : '') + '">還沒人處理</button></div>' +
+      '<div class="opts people-opts" id="otherOpts"' + (who === 'other' ? '' : ' style="display:none"') + '>' + others.map(function (m) {
+        return '<button type="button" data-person="' + esc(m) + '" class="' + (it.owner === m ? 'on' : '') + '">' + esc(m) + '</button>';
+      }).join('') + '</div>' +
+      '<div class="help" id="whoNow"></div>' +
+      '<div class="field" style="margin-top:12px"><label>備註</label><input name="note" maxlength="300" value="' + esc(it.note) + '" placeholder="例如：比較一下幾家保險"></div>' +
+      '<div class="sheet-actions">' + (item ? '<button type="button" class="btn danger" id="delBtn">刪除這件待辦</button>' : '') +
+      '<span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button>' +
+      '<button type="submit" class="btn primary">完成</button></div></form>';
+    openModal(html, function (root) {
+      var f = $('#todoForm', root), owner = it.owner || '';
+      function showWho() {
+        $('#whoNow', root).textContent = owner ? (owner === me ? '目前：你負責' : '目前：' + owner + ' 處理中（名字只在這裡看得到，清單上只顯示「有人處理中」）') : '目前：還沒人處理';
+      }
+      showWho();
+      $('#dueOpts', root).addEventListener('click', function (e) {
+        var b = e.target.closest('[data-due]'); if (!b || b.disabled) return;
+        preset = b.dataset.due;
+        root.querySelectorAll('#dueOpts button').forEach(function (x) { x.classList.toggle('on', x === b); });
+        f.due.style.display = preset === 'custom' ? '' : 'none';
+        if (preset === 'custom' && !f.due.value) f.due.value = duePreset('week');
+      });
+      $('#whoOpts', root).addEventListener('click', function (e) {
+        var b = e.target.closest('[data-who]'); if (!b) return;
+        root.querySelectorAll('#whoOpts button').forEach(function (x) { x.classList.toggle('on', x === b); });
+        $('#otherOpts', root).style.display = b.dataset.who === 'other' ? '' : 'none';
+        if (b.dataset.who === 'me') owner = me;
+        if (b.dataset.who === 'none') owner = '';
+        if (b.dataset.who === 'other') { owner = others.indexOf(owner) >= 0 ? owner : ''; root.querySelectorAll('#otherOpts button').forEach(function (x) { x.classList.toggle('on', x.dataset.person === owner); }); }
+        showWho();
+      });
+      $('#otherOpts', root).addEventListener('click', function (e) {
+        var b = e.target.closest('[data-person]'); if (!b) return;
+        owner = b.dataset.person;
+        root.querySelectorAll('#otherOpts button').forEach(function (x) { x.classList.toggle('on', x === b); });
+        showWho();
+      });
+      $('#cancelBtn', root).onclick = closeModal;
+      if (item) $('#delBtn', root).onclick = function () {
+        if (!confirm('確定要刪除「' + item.title + '」？')) return;
+        closeModal();
+        guarded(function (force) { return api.deleteItem('checklist', item.id, opts(item, force)); }, '已刪除', 'delete');
+      };
+      f.onsubmit = function (e) {
+        e.preventDefault();
+        var title = f.title.value.trim();
+        if (!title) { f.title.focus(); return; }
+        var due = preset === 'custom' ? f.due.value : duePreset(preset);
+        var data = { id: item ? item.id : '', kind: 'todo', scope: '', title: title, owner: owner, dueDate: due,
+          note: f.note.value.trim(), author: item ? item.author : me };
+        disableForm(f);
+        guarded(function (force) { return api.saveItem('checklist', data, opts(item, force)); }, item ? '已儲存' : '已新增')
+          .then(closeModal, function () { enableForm(f); });
+      };
+    });
   }
 
   /* ---------- 行李：共用區＋個人房間 ---------- */
@@ -1878,22 +2127,6 @@
     });
   }
 
-  /** 行程裡標成「需要預約」的項目，自動列在待辦最上面 */
-  function bookingTodoHtml() {
-    // 只看已經排進行程的項目（候選還沒決定要不要去，不列進來）
-    var rows = state.itinerary.filter(function (x) { return x.booking === 'need'; }).map(function (x) { return { type: 'itinerary', it: x }; });
-    if (!rows.length) return '';
-    rows.sort(function (a, b) { return (a.it.date || '9999').localeCompare(b.it.date || '9999') || (a.it.time || '').localeCompare(b.it.time || ''); });
-    var today0 = new Date(new Date().toDateString());
-    return '<div class="card list-group"><h3>📅 需要預約 <small>行程裡還沒訂的</small></h3>' + rows.map(function (r) {
-      var it = r.it, d = parseDate(it.date), left = d ? Math.round((d - today0) / 86400000) : null;
-      var when = left == null ? '日期未定' : (left < 0 ? '已經過了' : (left === 0 ? '就是今天！' : '還有 ' + left + ' 天'));
-      return '<div class="book-row"><div class="t"><div class="chk-title">' + esc(it.title) + '</div><div class="chk-sub">' +
-        (it.date ? esc(fmtShort(it.date)) : '') + (it.time ? ' ' + esc(it.time) : '') +
-        '<span class="' + (left != null && left <= 14 ? 'late' : '') + '">' + when + '</span></div></div>' +
-        '<button type="button" class="mini go" data-booked="' + r.type + '|' + esc(it.id) + '">✓ 已預約</button></div>';
-    }).join('') + '</div>';
-  }
   function markBooked(type, id) {
     var src = type === 'candidates' ? state.candidates : state.itinerary;
     var item = src.find(function (x) { return x.id === id; });
@@ -1936,7 +2169,7 @@
     var me = getMe(), view = state.listView;
     var items = view === 'pack'
       ? SUGGESTED_PACK.map(function (x) { return { kind: 'pack', scope: x[0], title: x[1], owner: '', author: me }; })
-      : SUGGESTED_TODO.map(function (t) { return { kind: 'todo', scope: '', title: t, owner: '', author: me }; });
+      : SUGGESTED_TODO.map(function (t) { return { kind: 'todo', scope: '', title: t[0], owner: '', author: me }; });
     mutate(api.addItems('checklist', items, opts(null)), '已加入 ' + items.length + ' 項，可以再自行增刪');
   }
 
@@ -2149,20 +2382,96 @@
   }
 
   /* ---------- 表單（彈出視窗） ---------- */
+  /**
+   * 所有彈出視窗共用：「取消／完成」固定在頂部、只有內容區可以捲動、背景鎖住（點背景不會關閉）、
+   * 有修改時按「取消」會先確認。各表單照舊把取消（#cancelBtn）和送出按鈕放在 .sheet-actions，
+   * 這裡會自動把它們搬到頂部，「刪除」這類按鈕留在最下面。
+   */
+  var modalSnap = '', scrollLockY = 0;
+  function lockScroll() {
+    if (document.body.classList.contains('modal-open')) return;
+    scrollLockY = window.scrollY;
+    document.body.style.top = -scrollLockY + 'px';
+    document.body.classList.add('modal-open');
+  }
+  function unlockScroll() {
+    if (!document.body.classList.contains('modal-open')) return;
+    document.body.classList.remove('modal-open');
+    document.body.style.top = '';
+    window.scrollTo(0, scrollLockY);
+  }
+  function formSnap(root) {
+    var vals = [];
+    root.querySelectorAll('.sheet-body input, .sheet-body textarea, .sheet-body select').forEach(function (el) {
+      if (el.type === 'file' || el.type === 'password') return;
+      vals.push(el.type === 'checkbox' ? el.checked : el.value);
+    });
+    root.querySelectorAll('.sheet-body .seg .on, .sheet-body .opts .on').forEach(function (el) { vals.push(el.outerHTML.length + ':' + el.textContent); });
+    root.querySelectorAll('#imgField img').forEach(function (el) { vals.push(el.getAttribute('src').length); });
+    return JSON.stringify(vals);
+  }
+  function appConfirm(msg, okText, keepText) {
+    return new Promise(function (resolve) {
+      var r = $('#confirmRoot');
+      r.innerHTML = '<div class="confirm-bd"><div class="confirm-box"><p>' + esc(msg) + '</p><div class="confirm-btns">' +
+        '<button type="button" class="keep">' + esc(keepText || '繼續編輯') + '</button><button type="button" class="drop">' + esc(okText || '放棄') + '</button></div></div></div>';
+      r.querySelector('.keep').onclick = function () { r.innerHTML = ''; resolve(false); };
+      r.querySelector('.drop').onclick = function () { r.innerHTML = ''; resolve(true); };
+    });
+  }
+  function buildSheetBar(root) {
+    var sheet = $('.sheet', root), body = $('.sheet-body', root);
+    var h3 = body.querySelector('h3'), title = h3 ? h3.innerHTML : '';
+    if (h3) h3.remove();
+    var acts = body.querySelectorAll('.sheet-actions'), last = acts[acts.length - 1];
+    var cancel = last && last.querySelector('#cancelBtn');
+    var ok = last && (last.querySelector('button[type=submit]') || last.querySelector('.btn.primary'));
+    var bar = document.createElement('div');
+    bar.className = 'sheet-bar';
+    bar.innerHTML = '<button type="button" class="bar-cancel">' + esc(cancel ? cancel.textContent : '關閉') + '</button>' +
+      '<b class="bar-title">' + title + '</b>' +
+      (ok ? '<button type="button" class="bar-ok">' + esc(ok.textContent) + '</button>' : '<span class="bar-ok-space"></span>');
+    sheet.insertBefore(bar, body);
+    if (cancel) cancel.style.display = 'none';
+    if (ok) {
+      ok.style.display = 'none';
+      var barOk = bar.querySelector('.bar-ok');
+      barOk.onclick = function () { if (!ok.disabled) ok.click(); };
+      new MutationObserver(function () { barOk.disabled = ok.disabled; barOk.textContent = ok.textContent; }).observe(ok, { attributes: true, childList: true, characterData: true, subtree: true });
+    }
+    bar.querySelector('.bar-cancel').onclick = function () { requestCancel(cancel); };
+    if (last) {
+      var rest = Array.prototype.filter.call(last.children, function (el) { return el.style.display !== 'none' && !el.classList.contains('spacer'); });
+      if (!rest.length) last.style.display = 'none'; else last.classList.add('bottom-zone');
+    }
+  }
+  function requestCancel(cancelBtn) {
+    var root = $('#modalRoot');
+    var go = function () { if (cancelBtn) cancelBtn.click(); else closeModal(); };
+    if (root.querySelector('.sheet') && formSnap(root) !== modalSnap) {
+      appConfirm('要放棄剛才的修改嗎？', '放棄', '繼續編輯').then(function (yes) { if (yes) go(); });
+    } else go();
+  }
   function openModal(html, onMount) {
     state.modalOpen = true;
+    lockScroll();
     var root = $('#modalRoot');
-    root.innerHTML = '<div class="backdrop"><div class="sheet" role="dialog" aria-modal="true">' + html + '</div></div>';
+    root.innerHTML = '<div class="backdrop"><div class="sheet" role="dialog" aria-modal="true"><div class="sheet-body">' + html + '</div></div></div>';
     var bd = $('.backdrop', root);
-    bd.addEventListener('click', function (e) { if (e.target === bd) closeModal(); });
+    // 背景只擋住操作：拖不動、點了也不會關閉；只有視窗內容區可以捲動
+    bd.addEventListener('touchmove', function (e) { if (!e.target.closest('.sheet-body')) e.preventDefault(); }, { passive: false });
     onMount(root);
-    var first = $('input:not([type=hidden]), textarea', root);
+    buildSheetBar(root);
+    modalSnap = formSnap(root);
+    var first = $('.sheet-body input:not([type=hidden]), .sheet-body textarea', root);
     if (first && window.innerWidth > 640) first.focus();
   }
   function closeModal() {
     if (state.onModalClose) { var hook = state.onModalClose; state.onModalClose = null; hook(); }
     state.modalOpen = false;
     $('#modalRoot').innerHTML = '';
+    $('#confirmRoot').innerHTML = '';
+    unlockScroll();
   }
 
   /** 在行程頁新增：先問要從候選挑，還是自己新增 */
@@ -2471,10 +2780,11 @@
 
   /* ---------- 事件 ---------- */
   document.querySelectorAll('.tab').forEach(function (b) {
-    b.addEventListener('click', function () { state.tab = b.dataset.tab; render(); window.scrollTo(0, 0); });
+    b.addEventListener('click', function () { goTab(b.dataset.tab); });
   });
   $('#refreshBtn').addEventListener('click', function () { refresh(false); });
   $('#histBtn').addEventListener('click', openHistory);
+  $('#settingsBtn').addEventListener('click', function () { goTab('settings'); });
   // 行程頁左右滑動切換天數
   (function () {
     // 判斷條件收緊：要明顯橫向滑、夠快；從螢幕邊緣開始的滑動留給瀏覽器的「上一頁」手勢
@@ -2497,7 +2807,9 @@
     else if (state.tab === 'candidates') openCandidateForm(null);
     else if (state.tab === 'checklist') {
       var ri2 = state.room && document.querySelector('#roomAdd input');
-      if (ri2) { ri2.focus(); ri2.scrollIntoView({ block: 'center' }); } else openChecklistForm(null);
+      if (ri2) { ri2.focus(); ri2.scrollIntoView({ block: 'center' }); }
+      else if (state.listView === 'todo') openTodoSheet(null);
+      else openChecklistForm(null);
     }
     else if (state.tab === 'expenses') {
       if (!members().length) { toast('請先到「設定」填寫成員'); return; }
@@ -2592,6 +2904,19 @@
     var lv = e.target.closest('[data-listview]');
     if (lv) { state.listView = lv.dataset.listview; if (state.listView !== 'pack') lockRoom(); renderChecklist(); return; }
     if (e.target.id === 'importSuggest') { e.target.disabled = true; importSuggestions(); return; }
+    if (e.target.id === 'todoSuggest') { e.target.disabled = true; addSuggestedTodos(); return; }
+    var tf = e.target.closest('[data-tfilter]');
+    if (tf) { state.todoFilter = tf.dataset.tfilter; renderChecklist(); return; }
+    if (e.target.closest('#doneFold')) { state.doneOpen = !state.doneOpen; if (state.todoFilter === 'done') state.todoFilter = 'all'; renderChecklist(); return; }
+    var tc = e.target.closest('[data-tcheck]');
+    if (tc) { toggleTodo(tc.dataset.tcheck); return; }
+    var te = e.target.closest('[data-tedit]');
+    if (te) {
+      var key = te.dataset.tedit;
+      if (key.indexOf('b:') === 0) { var ev2 = state.itinerary.find(function (x) { return x.id === key.slice(2); }); if (ev2) openEventForm(ev2); }
+      else { var td = state.checklist.find(function (x) { return x.id === key; }); if (td) openTodoSheet(td); }
+      return;
+    }
     var fb = e.target.closest('[data-filter]');
     if (fb) { state.candFilter = fb.dataset.filter; renderCandidates(); }
   });
@@ -2601,6 +2926,16 @@
     if (e.target.id === 'basePick') pickBase(e.target.value);
   });
   document.addEventListener('submit', function (e) {
+    if (e.target.id === 'todoComposer') {
+      e.preventDefault();
+      var t = e.target.t.value.trim();
+      if (!t) return;
+      e.target.t.value = '';
+      var me = getMe();
+      mutate(api.saveItem('checklist', { kind: 'todo', scope: '', title: t, owner: me || '', dueDate: duePreset('week'), note: '', author: me }, opts(null)),
+        '已新增「' + t + '」' + (me ? '' : '（先在上方選「我是」，新增的就會算你負責）'));
+      return;
+    }
     if (e.target.id === 'roomAdd') {
       e.preventDefault();
       var t = e.target.t.value.trim();
@@ -2624,7 +2959,12 @@
       extraCurrencies: f.extraCurrencies.value.toUpperCase().split(/[^A-Z]+/).filter(function (c) { return /^[A-Z]{3}$/.test(c); }).join(',')
     }, opts(null)), '設定已儲存').catch(function () { enableForm(f); });
   });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && state.modalOpen) closeModal(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || !state.modalOpen) return;
+    if ($('#confirmRoot').innerHTML) { $('#confirmRoot').innerHTML = ''; return; }
+    var c = document.querySelector('#modalRoot .bar-cancel');
+    if (c) c.click(); else closeModal();
+  });
 
   setInterval(function () {
     if (!state.modalOpen && !document.hidden) refresh(true);
