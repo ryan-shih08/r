@@ -59,27 +59,67 @@
   button, input, select, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
 
-  /* Header */
-  .hero {
-    padding: 28px 16px 20px;
-    background: linear-gradient(135deg, var(--accent) 0%, #f2a65a 100%);
-    color: #fff;
+  /* Header：橘色窄條固定在最上方，基本資訊和工具列在下面 */
+  :root { --top-h: 54px; }
+  .topbar {
+    position: sticky; top: 0; z-index: 25; height: var(--top-h); overflow: hidden;
+    background: linear-gradient(135deg, var(--accent) 0%, #f2a65a 100%); color: #fff;
+    padding-top: env(safe-area-inset-top); box-sizing: content-box;
+    box-shadow: 0 2px 10px rgba(120, 60, 20, .18);
   }
-  .hero-inner, .main { max-width: 720px; margin: 0 auto; }
-  .hero h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .5px; }
-  .hero .dates { opacity: .9; margin-top: 4px; font-size: 14px; }
-  .hero-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+  .topbar-inner {
+    position: relative; z-index: 1; max-width: 720px; height: 100%; margin: 0 auto; padding: 0 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .topbar h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .me {
-    display: inline-flex; align-items: center; gap: 6px;
-    background: rgba(255,255,255,.2); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 14px;
+    flex: none; display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,.2); border-radius: 999px; padding: 3px 4px 3px 12px; font-size: 13px;
   }
-  .me select {
-    background: rgba(255,255,255,.95); color: #2b2a28; border: 0; border-radius: 999px; padding: 4px 10px;
-  }
-  .sync { font-size: 12px; opacity: .85; display: flex; align-items: center; gap: 6px; }
-  .sync button { background: rgba(255,255,255,.2); border: 0; color: #fff; border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+  .me select { background: rgba(255,255,255,.95); color: #2b2a28; border: 0; border-radius: 999px; padding: 4px 8px; max-width: 120px; }
+  .subhead { max-width: 720px; margin: 0 auto; padding: 12px 16px 0; }
+  .trip-info { font-size: 13px; font-weight: 600; display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; }
+  .trip-info .dot { color: var(--line); }
+  .trip-info .countdown { color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
+  .trip-info .muted { color: var(--muted); font-weight: 400; }
+  .toolbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .toolbar .spacer { flex: 1; }
+  .toolbar button { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 
-  .main { padding: 16px; }
+  .main { max-width: 720px; margin: 0 auto; padding: 12px 16px 16px; }
+
+  /* 動畫 A：小飛機沿虛線航道飛過標題列 */
+  .flight { position: absolute; inset: 0; pointer-events: none; }
+  .flight::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 0;
+    border-top: 2px dashed rgba(255,255,255,.28);
+  }
+  .plane { position: absolute; top: 1px; left: -30px; width: 16px; height: 16px; color: rgba(255,255,255,.8); transform: rotate(90deg); animation: fly 16s linear infinite; }
+  @keyframes fly {
+    0% { left: -30px; transform: rotate(90deg) translateX(0); }
+    50% { transform: rotate(90deg) translateX(-3px); }
+    100% { left: calc(100% + 30px); transform: rotate(90deg) translateX(0); }
+  }
+  /* 動畫 C：嘟嘟車在倒數旁邊晃來晃去 */
+  .tuktuk { display: inline-block; animation: tuk 2.6s ease-in-out infinite; transform-origin: 50% 90%; }
+  @keyframes tuk {
+    0%, 100% { transform: translateX(0) rotate(0); }
+    20% { transform: translateX(3px) rotate(-4deg); }
+    40% { transform: translateX(6px) rotate(0); }
+    60% { transform: translateX(3px) rotate(4deg); }
+    80% { transform: translateX(0) rotate(-2deg); }
+  }
+  /* 動畫 D：操作回饋 */
+  .pop { animation: pop .35s ease-out; }
+  @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+  @keyframes slideL { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+  @keyframes slideR { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+  .slide-left { animation: slideL .22s ease-out; }
+  .slide-right { animation: slideR .22s ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .plane, .tuktuk, .pop, .slide-left, .slide-right, .toast, .sheet { animation: none !important; }
+    .plane { display: none; }
+  }
 
   /* Tabs (bottom nav) */
   .tabs {
@@ -100,10 +140,30 @@
   .section-title h2 { margin: 0; font-size: 18px; }
   .section-title .hint { color: var(--muted); font-size: 13px; }
 
+  /* Day tabs */
+  .day-tabs {
+    position: sticky; top: calc(var(--top-h) + env(safe-area-inset-top)); z-index: 6; background: var(--bg);
+    display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 10px; margin-bottom: 4px; scrollbar-width: none;
+  }
+  .day-tabs::-webkit-scrollbar { display: none; }
+  .day-tabs button {
+    position: relative; flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    border-radius: 12px; padding: 6px 12px; min-width: 64px; line-height: 1.25; text-align: center;
+  }
+  .day-tabs button b { display: block; font-size: 14px; }
+  .day-tabs button small { display: block; font-size: 11px; color: var(--muted); }
+  .day-tabs button i { position: absolute; top: -6px; right: -4px; font-style: normal; font-size: 10px; background: var(--accent); color: #fff; border-radius: 999px; padding: 0 5px; line-height: 16px; }
+  .day-tabs button.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+  .day-tabs button.on small { color: inherit; opacity: .75; }
+  .day-tabs button.today:not(.on) { border-color: var(--accent); }
+  .swipe-hint { text-align: center; margin: 4px 0 8px; }
+  .nav-link { display: inline-flex; align-items: center; gap: 6px; }
+  .nav-ico { flex: none; color: #fff; background: var(--c-transport); border-radius: 50%; padding: 4px; width: 24px; height: 24px; transform: rotate(45deg); box-sizing: border-box; }
+
   /* Timeline */
   .day { margin-bottom: 22px; }
   .day-head {
-    position: sticky; top: 0; z-index: 5; background: var(--bg);
+    background: var(--bg);
     display: flex; align-items: center; gap: 10px; padding: 8px 0;
   }
   .day-badge { background: var(--text); color: var(--bg); border-radius: 10px; padding: 2px 10px; font-weight: 700; font-size: 13px; }
@@ -372,24 +432,33 @@
     background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 999px; font-size: 14px; z-index: 60;
     opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); text-align: center;
   }
-  .toast.show { opacity: 1; }
+  .toast.show { opacity: 1; animation: toastIn .3s cubic-bezier(.2, 1.4, .4, 1); }
+  @keyframes toastIn { from { transform: translateX(-50%) translateY(12px) scale(.9); } to { transform: translateX(-50%) translateY(0) scale(1); } }
   .loading { text-align: center; color: var(--muted); padding: 60px 0; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
-  <header class="hero">
-    <div class="hero-inner">
+  <header class="topbar">
+    <div class="flight" aria-hidden="true">
+      <svg class="plane" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+    </div>
+    <div class="topbar-inner">
       <h1 id="tripName">旅行共編</h1>
-      <div class="dates" id="tripDates"></div>
-      <div class="hero-row">
-        <label class="me">我是
-          <select id="meSelect" aria-label="選擇你的名字"></select>
-        </label>
-        <div class="sync"><span id="syncText">載入中…</span><button id="histBtn" type="button">🕘 紀錄</button><button id="refreshBtn" type="button">重新整理</button></div>
-      </div>
+      <label class="me">我是
+        <select id="meSelect" aria-label="選擇你的名字"></select>
+      </label>
     </div>
   </header>
+  <div class="subhead">
+    <div class="trip-info" id="tripDates"></div>
+    <div class="toolbar">
+      <span id="syncText">載入中…</span>
+      <span class="spacer"></span>
+      <button id="histBtn" type="button">🕘 修改紀錄</button>
+      <button id="refreshBtn" type="button">↻ 重新整理</button>
+    </div>
+  </div>
 
   <main class="main">
     <div id="loading" class="loading">資料載入中…</div>
@@ -420,7 +489,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-11-05.1';
+  var APP_VERSION = '2026-11-07.1';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
@@ -935,6 +1004,12 @@
   function fmtRate(r) { return Number(r).toLocaleString('zh-TW', { maximumFractionDigits: 4 }); }
   function catOf(key) { return CATEGORIES.find(function (c) { return c.key === key; }) || CATEGORIES[4]; }
   function initial(name) { return esc(String(name || '?').trim().charAt(0) || '?'); }
+  function cssEsc(v) { return String(v).replace(/["\\]/g, '\\$&'); }
+  function popEl(sel) {
+    var el = document.querySelector(sel);
+    if (!el) return;
+    el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  }
   var toastTimer;
   function toast(msg) {
     var t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -1032,17 +1107,21 @@
     var s = state.settings;
     $('#tripName').textContent = s.tripName || '旅行共編';
     document.title = s.tripName || '旅行共編';
-    var sd = parseDate(s.startDate), ed = parseDate(s.endDate);
-    var datesText = '';
+    var sd = parseDate(s.startDate), ed = parseDate(s.endDate), info = '';
     if (sd && ed) {
       var days = Math.round((ed - sd) / 86400000) + 1;
-      datesText = fmtShort(s.startDate) + ' – ' + fmtShort(s.endDate) + '　共 ' + days + ' 天';
-      var left = Math.ceil((sd - new Date(new Date().toDateString())) / 86400000);
-      if (left > 0) datesText += '　・倒數 ' + left + ' 天';
+      var today0 = new Date(new Date().toDateString());
+      var left = Math.ceil((sd - today0) / 86400000);
+      var nth = Math.round((today0 - sd) / 86400000) + 1;
+      info = '<span>📅 ' + esc(fmtShort(s.startDate)) + '–' + esc(fmtShort(s.endDate)) + '</span><span class="dot">・</span>' +
+        '<span>共 ' + days + ' 天</span><span class="dot">・</span>' +
+        (left > 0 ? '<span class="countdown">倒數 ' + left + ' 天 <span class="tuktuk" aria-hidden="true">🛺</span></span>'
+          : (nth >= 1 && nth <= days ? '<span class="countdown">旅行第 ' + nth + ' 天 <span class="tuktuk" aria-hidden="true">🛺</span></span>'
+          : '<span class="muted">旅程結束，歡迎回家</span>'));
     } else {
-      datesText = '還沒設定日期，到「設定」填寫出發與回程日';
+      info = '<span class="muted">還沒設定日期，到「設定」填寫出發與回程日</span>';
     }
-    $('#tripDates').textContent = datesText;
+    $('#tripDates').innerHTML = info;
 
     var ms = members(), me = getMe();
     var sel = $('#meSelect');
@@ -1080,7 +1159,25 @@
     var html = '<div class="section-title"><h2>行程時間軸</h2><button type="button" class="pdf-btn" id="pdfBtn">📥 離線版</button></div>';
     if (!keys.length) {
       html += '<div class="empty">還沒有任何行程<br>按右下角 ＋ 新增第一個吧！</div>';
+      $('#view-itinerary').innerHTML = html;
+      return;
     }
+    var sel = currentDay(keys);
+    var todayKey = fmtISO(new Date());
+    html += '<div class="day-tabs" id="dayTabs" role="tablist">' +
+      '<button type="button" role="tab" data-day="all" class="' + (sel === 'all' ? 'on' : '') + '">全部</button>' +
+      keys.map(function (k) {
+        var n = k && sd ? Math.round((parseDate(k) - sd) / 86400000) + 1 : 0;
+        var label = k ? (n >= 1 ? 'Day ' + n : '') : '日期未定';
+        var d = parseDate(k);
+        return '<button type="button" role="tab" data-day="' + (k || 'undated') + '" class="' + (sel === (k || 'undated') ? 'on' : '') + (k === todayKey ? ' today' : '') + '">' +
+          '<b>' + esc(label || fmtShort(k)) + '</b>' +
+          (k ? '<small>' + (k === todayKey ? '今天' : (d.getMonth() + 1) + '/' + d.getDate() + ' ' + WEEK[d.getDay()]) + '</small>' : '') +
+          (groups[k].length ? '<i>' + groups[k].length + '</i>' : '') + '</button>';
+      }).join('') + '</div>';
+    if (sel !== 'all') keys = keys.filter(function (k) { return (k || 'undated') === sel; });
+    html += '<div id="dayBody" class="' + (state.daySlide || '') + '">';
+    state.daySlide = '';
     keys.forEach(function (k) {
       var items = groups[k].slice().sort(function (a, b) {
         return (a.time || '99:99').localeCompare(b.time || '99:99');
@@ -1091,18 +1188,66 @@
         if (n >= 1) dayNo = 'Day ' + n;
       }
       html += '<div class="day"><div class="day-head">' +
-        (dayNo ? '<span class="day-badge">' + dayNo + '</span>' : '') +
+        (dayNo && sel === 'all' ? '<span class="day-badge">' + dayNo + '</span>' : '') +
         '<span class="day-date">' + (k ? esc(fmtShort(k)) : '日期未定') + '</span>' +
         '<span class="day-count">' + items.length + ' 項</span>' +
         routeLink(items) +
         '<button class="day-add" type="button" data-add-date="' + esc(k) + '">＋</button></div>';
       if (items.length) {
         html += '<div class="tl">' + items.map(function (it, i) { return (i ? legHtml(items[i - 1], it) : '') + renderEvent(it); }).join('') + '</div>';
+      } else if (sel !== 'all') {
+        html += '<div class="empty">這天還沒有行程<br>按右下角 ＋ 新增，或從候選挑一個</div>';
       }
       html += '</div>';
     });
+    html += '</div>';
+    if (sel !== 'all') html += '<div class="help swipe-hint">← 左右滑動可以切換天數 →</div>';
     $('#view-itinerary').innerHTML = html;
+    // 讓選中的天數按鈕捲到看得到的位置
+    var bar = $('#dayTabs'), on = bar && bar.querySelector('.on');
+    if (bar && on && state.dayScrolled !== sel) {
+      bar.scrollLeft = on.offsetLeft - bar.clientWidth / 2 + on.offsetWidth / 2;
+      state.dayScrolled = sel;
+    }
   }
+
+  /* ---------- 天數切換 ---------- */
+  function dayKeys() {
+    var keys = {}, sd = parseDate(state.settings.startDate), ed = parseDate(state.settings.endDate);
+    if (sd && ed && ed >= sd && (ed - sd) / 86400000 < 120) {
+      for (var d = new Date(sd); d <= ed; d.setDate(d.getDate() + 1)) keys[fmtISO(d)] = 1;
+    }
+    var undated = false;
+    state.itinerary.forEach(function (it) { var p = parseDate(it.date); if (p) keys[fmtISO(p)] = 1; else undated = true; });
+    var list = Object.keys(keys).sort();
+    if (undated) list.push('');
+    return list;
+  }
+  /** 目前看哪一天：自己選過的優先；旅行期間預設今天；否則第一天 */
+  function currentDay(keys) {
+    var valid = ['all'].concat(keys.map(function (k) { return k || 'undated'; }));
+    if (state.day && valid.indexOf(state.day) >= 0) return state.day;
+    var saved = '';
+    try { saved = localStorage.getItem('trip-day') || ''; } catch (e) {}
+    var today = fmtISO(new Date());
+    if (keys.indexOf(today) >= 0) state.day = today;
+    else if (saved && valid.indexOf(saved) >= 0) state.day = saved;
+    else state.day = keys[0] || 'undated';
+    return state.day;
+  }
+  function selectDay(day, slide) {
+    state.day = day;
+    state.daySlide = slide || '';
+    try { localStorage.setItem('trip-day', day); } catch (e) {}
+    renderItinerary();
+  }
+  function swipeDay(dir) {
+    var order = ['all'].concat(dayKeys().map(function (k) { return k || 'undated'; }));
+    var i = order.indexOf(currentDay(dayKeys())) + dir;
+    if (i < 0 || i >= order.length) return;
+    selectDay(order[i], dir > 0 ? 'slide-left' : 'slide-right');
+  }
+  function selectedDate() { return state.day && state.day !== 'all' && state.day !== 'undated' ? state.day : undefined; }
 
   /* 單日路線：把當天有地點的行程依時間串成 Google 地圖路線 */
   var MAX_ROUTE_STOPS = 10;
@@ -1274,11 +1419,14 @@
     }).join('') + '</div><div class="help">標成「需要預約」會自動出現在「清單 → 待辦」，訂好後記得改成「已預約」</div></div>';
   }
 
+  // 導航箭頭（Google 地圖導航用的那種）
+  var NAV_ICON = '<svg class="nav-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
+
   function renderEvent(it) {
     var c = catOf(it.category);
     var tentative = it.status !== 'confirmed';
-    var loc = it.location ? '<div class="ev-loc">📍 <a href="https://www.google.com/maps/search/?api=1&query=' +
-      encodeURIComponent(it.location) + '" target="_blank" rel="noopener">' + esc(it.location) + '</a></div>' : '';
+    var loc = it.location ? '<div class="ev-loc"><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&destination=' +
+      encodeURIComponent(it.location) + '" target="_blank" rel="noopener" title="用 Google 地圖導航">' + NAV_ICON + '<span>' + esc(it.location) + '</span></a></div>' : '';
     return '<div class="ev' + (tentative ? ' tentative' : '') + '" style="--cat:' + c.color + '">' +
       '<div class="ev-time">' + (it.time ? esc(it.time) : '—') + (it.endTime ? '<small>~' + esc(it.endTime) + '</small>' : '') + '</div>' +
       '<div class="ev-dot"></div>' +
@@ -1418,6 +1566,7 @@
     if (next === 0) delete v[me]; else v[me] = next;
     c.votes = JSON.stringify(v);
     renderCandidates();
+    popEl('[data-vote="' + value + '"][data-cid="' + cssEsc(id) + '"]');
     mutate(api.vote(id, me, next)).catch(function () { refresh(true); });
   }
 
@@ -1551,6 +1700,7 @@
       it.done = next ? '1' : '';
     }
     renderChecklist();
+    popEl('[data-check="' + cssEsc(id) + '"]');
     mutate(api.toggleCheck(id, me, next)).catch(function () { refresh(true); });
   }
 
@@ -2060,9 +2210,23 @@
   });
   $('#refreshBtn').addEventListener('click', function () { refresh(false); });
   $('#histBtn').addEventListener('click', openHistory);
+  // 行程頁左右滑動切換天數
+  (function () {
+    var x0 = null, y0 = null, view = $('#view-itinerary');
+    view.addEventListener('touchstart', function (e) {
+      if (e.target.closest('.day-tabs, .ev-imgs')) { x0 = null; return; }
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+    }, { passive: true });
+    view.addEventListener('touchend', function (e) {
+      if (x0 == null) return;
+      var dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      x0 = null;
+      if (Math.abs(dx) > 60 && Math.abs(dy) < 45) swipeDay(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  })();
   $('#meSelect').addEventListener('change', function (e) { setMe(e.target.value); render(); });
   $('#fab').addEventListener('click', function () {
-    if (state.tab === 'itinerary') openAddChooser();
+    if (state.tab === 'itinerary') openAddChooser(selectedDate());
     else if (state.tab === 'candidates') openCandidateForm(null);
     else if (state.tab === 'checklist') openChecklistForm(null);
     else if (state.tab === 'expenses') {
@@ -2072,6 +2236,8 @@
   });
   document.addEventListener('click', function (e) {
     if (e.target.closest('#pdfBtn')) { openPdfPanel(); return; }
+    var dt = e.target.closest('[data-day]');
+    if (dt) { selectDay(dt.dataset.day); return; }
     if (e.target.closest('#mapBtn')) { openMapOverview(); return; }
     var bk = e.target.closest('[data-booked]');
     if (bk) { var bp2 = bk.dataset.booked.split('|'); markBooked(bp2[0], bp2[1]); return; }
