@@ -138,9 +138,16 @@
   /* 動畫：嘟嘟車沿著標題列底邊慢慢開過去，車尾冒小白煙 */
   .road { position: absolute; inset: 0; pointer-events: none; }
   .tuk-run { position: absolute; bottom: 4px; left: -40px; font-size: 16px; line-height: 1; opacity: .9; animation: drive 20s linear infinite; }
-  .tuk-car { display: inline-block; transform: scaleX(-1); animation: bump .5s ease-in-out infinite alternate; }
+  .tuk-car { display: inline-block; transform: scaleX(-1); animation: bump 7s linear infinite; }
   @keyframes drive { from { left: -40px; } to { left: calc(100% + 40px); } }
-  @keyframes bump { from { transform: scaleX(-1) translateY(0); } to { transform: scaleX(-1) translateY(-1.5px); } }
+  /* 平常穩穩開，偶爾壓到小石頭震一下（7 秒內兩次，間隔不同比較自然） */
+  @keyframes bump {
+    0%, 30%, 36%, 78%, 83%, 100% { transform: scaleX(-1) translateY(0) rotate(0); }
+    31.5% { transform: scaleX(-1) translateY(-2.5px) rotate(-4deg); }
+    33.5% { transform: scaleX(-1) translateY(0) rotate(1.5deg); }
+    79.5% { transform: scaleX(-1) translateY(-1.5px) rotate(-2.5deg); }
+    81% { transform: scaleX(-1) translateY(0) rotate(1deg); }
+  }
   .puff { position: absolute; left: -4px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.75); opacity: 0; animation: puff 1.8s ease-out infinite; }
   .puff.p2 { animation-delay: .9s; }
   @keyframes puff { 0% { opacity: 0; transform: translate(0, 0) scale(.4); } 15% { opacity: .8; } 100% { opacity: 0; transform: translate(-14px, -6px) scale(1.4); } }
@@ -192,8 +199,8 @@
   .day-pill.anim { transition: transform .3s cubic-bezier(.3, .7, .2, 1), width .3s; }
   .day-fade { animation: dayFade .18s ease-out; }
   @keyframes dayFade { from { opacity: 0; } to { opacity: 1; } }
-  .day-in-r { animation: dayInR .22s ease-out; }
-  .day-in-l { animation: dayInL .22s ease-out; }
+  .day-in-r { animation: dayInR .3s cubic-bezier(.2, .7, .3, 1); }
+  .day-in-l { animation: dayInL .3s cubic-bezier(.2, .7, .3, 1); }
   @keyframes dayInR { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
   @keyframes dayInL { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
   .day-tabs button.on small { color: inherit; opacity: .75; }
@@ -629,7 +636,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-11-07.6';
+  var APP_VERSION = '2026-11-07.7';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
