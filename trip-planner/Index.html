@@ -47,6 +47,9 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
+  /* 不讓頁面被左右拖出白邊，也減少瀏覽器的下拉重新整理、回彈 */
+  html { overscroll-behavior: none; }
+  body { overflow-x: hidden; overscroll-behavior: none; }
   body {
     background: var(--bg);
     color: var(--text);
@@ -333,6 +336,24 @@
   .pick-title { display: block; font-weight: 600; }
   .pick-meta { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
 
+  /* Rooms */
+  .doors { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .door { border: 1px solid var(--line); background: var(--surface-2); border-radius: 14px; padding: 12px 8px; text-align: center; color: var(--text); }
+  .door-ico { display: block; font-size: 24px; line-height: 1.2; }
+  .door b { display: block; margin-top: 2px; }
+  .door small { display: block; font-size: 11px; color: var(--muted); }
+  .room-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 17px; }
+  .room-head .btn { padding: 6px 12px; font-size: 13px; }
+  .room-add { display: flex; gap: 8px; margin-top: 10px; }
+  .room-add input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 9px 12px; }
+  .chk.tpl { align-items: center; }
+  .tpl-dot { flex: none; width: 26px; text-align: center; color: var(--muted); }
+  .list-group h3 { align-items: center; }
+  .pin-input { display: block; width: 100%; text-align: center; font-size: 28px; letter-spacing: 12px; padding: 10px; margin-bottom: 10px;
+    border: 1px solid var(--line); background: var(--surface-2); border-radius: 14px; outline: none; }
+  .pin-input:focus { border-color: var(--accent); }
+  .pin-msg { min-height: 20px; font-size: 13px; color: var(--danger); text-align: center; }
+
   /* History */
   .hist { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .hist:last-child { border-bottom: 0; }
@@ -489,7 +510,7 @@
   'use strict';
 
   // 程式版本：要跟 程式碼.gs 裡的 APP_VERSION 一樣
-  var APP_VERSION = '2026-11-07.1';
+  var APP_VERSION = '2026-11-07.2';
 
   var CATEGORIES = [
     { key: 'transport', label: '交通', icon: '🚆', color: 'var(--c-transport)' },
@@ -518,7 +539,7 @@
       });
     }
     var api = {};
-    ['getData', 'saveItem', 'deleteItem', 'saveSettings', 'vote', 'scheduleCandidate', 'addItems', 'toggleCheck', 'getLog', 'undo', 'uploadImage', 'discardImages', 'exportPdf', 'getGeo', 'getOverviewMap', 'unscheduleEvent']
+    ['getData', 'saveItem', 'deleteItem', 'saveSettings', 'vote', 'scheduleCandidate', 'addItems', 'toggleCheck', 'getLog', 'undo', 'uploadImage', 'discardImages', 'exportPdf', 'getGeo', 'getOverviewMap', 'unscheduleEvent', 'setRoomPin', 'openRoom', 'roomAction', 'adminRoom']
       .forEach(function (fn) {
         api[fn] = function () { return call(fn, Array.prototype.slice.call(arguments)); };
       });
@@ -554,7 +575,12 @@
       if (old) d[type][d[type].indexOf(old)] = item; else d[type].push(item);
     }
     function save(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {} }
+    function mockRooms(d) {
+      return String(d.settings.members || '').split(/[,，、]/).map(function (x) { return x.trim(); }).filter(Boolean)
+        .map(function (n) { return { name: n, hasPin: !!(d.pins && d.pins[n]), lockedUntil: '' }; });
+    }
     function snapshot(d) {
+      d.rooms = mockRooms(d); d.adminSet = true;
       // 本機預覽用的假匯率（正式版由 Google 財經自動抓取）
       var base = d.settings.currency || 'TWD', rates = {};
       String(d.settings.extraCurrencies || '').toUpperCase().split(/[^A-Z]+/).filter(function (c) { return /^[A-Z]{3}$/.test(c) && c !== base; })
@@ -598,6 +624,36 @@
         d.comments.forEach(function (c) {
           if (c.targetType === 'candidates' && c.targetId === id) { c.targetType = 'itinerary'; c.targetId = ev.id; }
         });
+        save(d); return snapshot(d);
+      },
+      // 本機預覽：房間密碼直接存在瀏覽器（正式版存在試算表，只存雜湊）
+      setRoomPin: function (name, pin) {
+        var d = loadFull(); d.pins = d.pins || {}; d.roomItems = d.roomItems || [];
+        if (d.pins[name]) return Promise.reject(new Error('這個房間已經設定過密碼了'));
+        d.pins[name] = pin; save(d);
+        return Promise.resolve({ items: d.roomItems.filter(function (x) { return x.owner === name; }), rooms: mockRooms(d) });
+      },
+      openRoom: function (name, pin) {
+        var d = loadFull(); d.pins = d.pins || {}; d.roomItems = d.roomItems || [];
+        if (d.pins[name] !== pin) return Promise.reject(new Error('PIN_WRONG:4'));
+        return Promise.resolve({ items: d.roomItems.filter(function (x) { return x.owner === name; }), rooms: mockRooms(d) });
+      },
+      roomAction: function (name, pin, action, p) {
+        var d = loadFull(); d.pins = d.pins || {}; d.roomItems = d.roomItems || [];
+        if (d.pins[name] !== pin) return Promise.reject(new Error('PIN_WRONG:4'));
+        var now = new Date().toISOString();
+        if (action === 'add' || action === 'addMany') (action === 'add' ? [p] : p.items).forEach(function (x, i) {
+          d.roomItems.push({ id: 'r' + Date.now() + '_' + i, owner: name, title: x.title, note: x.note || '', templateId: x.templateId || '', done: '', createdAt: now });
+        });
+        if (action === 'toggle') d.roomItems.forEach(function (x) { if (x.id === p.id && x.owner === name) x.done = p.done ? '1' : ''; });
+        if (action === 'remove') d.roomItems = d.roomItems.filter(function (x) { return !(x.id === p.id && x.owner === name); });
+        save(d);
+        return Promise.resolve({ items: d.roomItems.filter(function (x) { return x.owner === name; }), rooms: mockRooms(d) });
+      },
+      adminRoom: function (pw, name, op) {
+        if (pw !== 'admin') return Promise.reject(new Error('管理密碼錯誤（本機預覽的管理密碼是 admin）'));
+        var d = loadFull(); d.pins = d.pins || {};
+        if (op === 'reset') delete d.pins[name];
         save(d); return snapshot(d);
       },
       unscheduleEvent: function (id) {
@@ -1034,6 +1090,8 @@
     state.candidates = d.candidates || [];
     state.checklist = d.checklist || [];
     state.comments = d.comments || [];
+    state.rooms = d.rooms || [];
+    state.adminSet = !!d.adminSet;
     state.fx = d.fx || { base: state.settings.currency || 'TWD', rates: {} };
     var now = new Date();
     $('#syncText').textContent = '已同步 ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
@@ -1129,6 +1187,7 @@
       return '<option' + (m === me ? ' selected' : '') + '>' + esc(m) + '</option>';
     }).join('');
 
+    if (state.room && (state.tab !== 'checklist' || state.listView !== 'pack')) lockRoom('已離開房間，門已鎖上 🔒');
     document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === state.tab); });
     ['itinerary', 'candidates', 'checklist', 'expenses', 'settings'].forEach(function (t) {
       $('#view-' + t).classList.toggle('hidden', t !== state.tab);
@@ -1487,8 +1546,8 @@
     }
     html += list.map(function (x, idx) {
       var c = x.c, v = x.v, cat = catOf(c.category);
-      var loc = c.location ? '<div class="ev-loc">📍 <a href="https://www.google.com/maps/search/?api=1&query=' +
-        encodeURIComponent(c.location) + '" target="_blank" rel="noopener">' + esc(c.location) + '</a></div>' : '';
+      var loc = c.location ? '<div class="ev-loc"><a class="nav-link" href="https://www.google.com/maps/dir/?api=1&destination=' +
+        encodeURIComponent(c.location) + '" target="_blank" rel="noopener" title="用 Google 地圖導航">' + NAV_ICON + '<span>' + esc(c.location) + '</span></a></div>' : '';
       var link = /^https?:\/\//i.test(c.link || '') ? '<div class="cand-link">🔗 <a href="' + esc(c.link) + '" target="_blank" rel="noopener">參考連結</a></div>' : '';
       var voters = (v.up.length ? '👍 ' + v.up.map(esc).join('、') : '') + (v.up.length && v.down.length ? '　' : '') +
         (v.down.length ? '👎 ' + v.down.map(esc).join('、') : '');
@@ -1592,7 +1651,11 @@
       '<div class="switch"><button type="button" data-listview="pack" class="' + (view === 'pack' ? 'on' : '') + '">🎒 行李</button>' +
       '<button type="button" data-listview="todo" class="' + (view === 'todo' ? 'on' : '') + '">✅ 待辦</button></div>';
 
-    if (!me) html += '<div class="card help">👆 先在上方「我是」選你的名字，才能勾選自己的行李</div>';
+    if (view === 'pack') {
+      $('#view-checklist').innerHTML = html + (state.room ? roomHtml() : packHtml(items));
+      if (state.room) touchRoom();
+      return;
+    }
 
     if (!items.length) {
       if (view === 'todo') html += bookingTodoHtml();
@@ -1653,16 +1716,181 @@
     $('#view-checklist').innerHTML = html;
   }
 
-  /** 行程和候選裡標成「需要預約」的項目，自動列在待辦最上面 */
+  /* ---------- 行李：共用區＋個人房間 ---------- */
+  function packHtml(items) {
+    var me = getMe();
+    var templates = items.filter(isPersonalPack);
+    var shared = items.filter(function (x) { return !isPersonalPack(x); });
+    if (state.listMine && me) shared = shared.filter(function (x) { return x.owner === me; });
+    var html = doorsHtml();
+    if (!items.length) {
+      return html + '<div class="empty">還沒有共用物品和建議清單' +
+        '<br><br><button type="button" class="btn primary" id="importSuggest">一鍵加入常用行李</button>' +
+        '<div class="help" style="margin-top:8px">也可以按右下角 ＋ 自己新增</div></div>';
+    }
+    html += '<label class="toggle-mine"><input type="checkbox" id="mineOnly"' + (state.listMine ? ' checked' : '') + '> 共用物品只看我負責的</label>';
+    html += '<div class="card list-group"><h3>🤝 共用物品 <small>一人負責帶，大家都看得到</small></h3>' + (shared.length ? shared.map(function (it) {
+      return chkRow(it, it.done === '1', it.owner ? '<span class="owner-tag">' + esc(it.owner) + ' 負責</span>' : '<span class="late">還沒有人負責</span>');
+    }).join('') : '<div class="help">沒有共用物品</div>') + '</div>';
+    if (templates.length) {
+      html += '<div class="card list-group"><h3>💡 建議清單 <small>每個人可以挑進自己的房間</small></h3>' + templates.map(function (it) {
+        return '<div class="chk tpl"><span class="tpl-dot">•</span><div class="chk-main" data-edit-chk="' + esc(it.id) + '"><div class="chk-title">' + esc(it.title) + '</div>' +
+          (it.note ? '<div class="chk-sub">' + esc(it.note) + '</div>' : '') + '</div></div>';
+      }).join('') + '</div>';
+    }
+    return html;
+  }
+  function doorsHtml() {
+    var now = Date.now();
+    return '<div class="card"><h3>🚪 個人房間 <small>私人行李，要密碼才能進去</small></h3><div class="doors">' +
+      (state.rooms.length ? state.rooms.map(function (r) {
+        var locked = r.lockedUntil && new Date(r.lockedUntil).getTime() > now;
+        return '<button type="button" class="door" data-door="' + esc(r.name) + '"><span class="door-ico">' + (locked ? '⏳' : (r.hasPin ? '🔒' : '🚪')) + '</span>' +
+          '<b>' + esc(r.name) + '</b><small>' + (locked ? '鎖定中' : (r.hasPin ? '輸入密碼進入' : '尚未設定')) + '</small></button>';
+      }).join('') : '<div class="help">到「設定」填寫成員後，每個人都會有一間房間</div>') + '</div></div>';
+  }
+  function roomHtml() {
+    var r = state.room, items = r.items.slice().sort(function (a, b) {
+      return (a.done === '1') - (b.done === '1') || (a.createdAt || '').localeCompare(b.createdAt || '');
+    });
+    var done = items.filter(function (x) { return x.done === '1'; }).length;
+    var have = {};
+    items.forEach(function (x) { if (x.templateId) have[x.templateId] = true; });
+    var sugg = state.checklist.filter(function (x) { return x.kind === 'pack' && isPersonalPack(x) && !have[x.id]; });
+    var pct = items.length ? Math.round(done / items.length * 100) : 0;
+    return '<div class="room-head"><b>🚪 ' + esc(r.name) + ' 的房間</b><button type="button" class="btn ghost" id="leaveRoom">🔒 離開房間</button></div>' +
+      '<div class="card"><div style="display:flex;justify-content:space-between"><b>打包進度</b><span>' + done + ' / ' + items.length + '</span></div>' +
+        '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+        (items.length && done === items.length ? '<div class="help">全部打包好了，出發吧！✈️</div>' : '') + '</div>' +
+      '<div class="card list-group"><h3>🧳 我的行李</h3>' + (items.length ? items.map(function (it) {
+        var on = it.done === '1';
+        return '<div class="chk' + (on ? ' done' : '') + '"><button type="button" class="box' + (on ? ' on' : '') + '" data-rcheck="' + esc(it.id) + '" aria-label="勾選">' + (on ? '✓' : '') + '</button>' +
+          '<div class="chk-main"><div class="chk-title">' + esc(it.title) + '</div>' + (it.note ? '<div class="chk-sub">' + esc(it.note) + '</div>' : '') + '</div>' +
+          '<button type="button" class="mini" data-rdel="' + esc(it.id) + '" aria-label="刪除">✕</button></div>';
+      }).join('') : '<div class="help">房間還是空的，從下面的建議清單挑，或自己新增</div>') +
+        '<form class="room-add" id="roomAdd"><input name="t" maxlength="100" placeholder="新增私人項目，例如：隱形眼鏡"><button type="submit" class="btn primary">新增</button></form></div>' +
+      (sugg.length ? '<div class="card list-group"><h3>💡 建議清單 <small>點「加入」放進我的房間</small>' +
+        '<button type="button" class="mini go" id="roomAddAll" style="margin-left:auto">全部加入</button></h3>' + sugg.map(function (x) {
+          return '<div class="chk tpl"><span class="tpl-dot">•</span><div class="chk-main"><div class="chk-title">' + esc(x.title) + '</div></div>' +
+            '<button type="button" class="mini go" data-radd="' + esc(x.id) + '">＋ 加入</button></div>';
+        }).join('') + '</div>' : '') +
+      '<div class="help" style="text-align:center">🔒 離開房間、切換到其他頁、關掉網頁，或 5 分鐘沒有操作，都會自動鎖門</div>';
+  }
+
+  var ROOM_IDLE_MS = 5 * 60000, roomTimer = null;
+  function touchRoom() {
+    clearTimeout(roomTimer);
+    roomTimer = setTimeout(function () { lockRoom('5 分鐘沒有操作，已自動鎖門'); }, ROOM_IDLE_MS);
+  }
+  function lockRoom(msg) {
+    if (!state.room) return;
+    state.room = null;
+    clearTimeout(roomTimer);
+    if (msg) toast(msg);
+    if (state.tab === 'checklist' && !state.modalOpen) renderChecklist();
+  }
+  function pinErrorText(e) {
+    var m = errMsg(e), k = m.indexOf(':'), code = m.slice(0, k), val = m.slice(k + 1);
+    if (code === 'PIN_WRONG') return '密碼錯誤，還可以再試 ' + val + ' 次（錯 ' + 5 + ' 次會鎖定 15 分鐘）';
+    if (code === 'LOCKED') {
+      var mins = Math.max(1, Math.ceil((new Date(val).getTime() - Date.now()) / 60000));
+      return '已鎖定，請 ' + mins + ' 分鐘後再試，或請管理者幫你解除';
+    }
+    if (code === 'NO_PIN') return '這個房間還沒有設定密碼';
+    return m;
+  }
+  function isPinError(e) { return /^(PIN_WRONG|LOCKED|NO_PIN):/.test(errMsg(e)); }
+
+  /** 密碼輸入視窗：confirm 為 true 時要輸入兩次（設定新密碼） */
+  function openPinModal(o) {
+    openModal('<h3>' + esc(o.title) + '</h3>' + (o.help ? '<div class="help" style="margin:-8px 0 12px">' + o.help + '</div>' : '') +
+      '<form id="pinForm" autocomplete="off">' +
+      '<input class="pin-input" name="p1" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="••••" aria-label="4 位數密碼">' +
+      (o.confirm ? '<input class="pin-input" name="p2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="再輸入一次" aria-label="再輸入一次">' : '') +
+      '<div class="pin-msg" id="pinMsg"></div>' +
+      '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button>' +
+      '<button type="submit" class="btn primary">' + (o.confirm ? '設定並進入' : '進入') + '</button></div></form>',
+      function (root) {
+        var f = $('#pinForm', root), msg = $('#pinMsg', root);
+        $('#cancelBtn', root).onclick = closeModal;
+        setTimeout(function () { f.p1.focus(); }, 50);
+        var busy = false;
+        function submit() {
+          if (busy) return;
+          var p1 = f.p1.value, p2 = f.p2 ? f.p2.value : p1;
+          if (!/^\d{4}$/.test(p1)) { msg.textContent = '請輸入 4 位數字'; return; }
+          if (o.confirm && p1 !== p2) { msg.textContent = '兩次輸入的密碼不一樣'; f.p2.value = ''; f.p2.focus(); return; }
+          busy = true; msg.textContent = '確認中…'; disableForm(f);
+          o.onSubmit(p1).then(function () { busy = false; closeModal(); }, function (e) {
+            busy = false; enableForm(f);
+            msg.textContent = isPinError(e) ? pinErrorText(e) : errMsg(e);
+            f.p1.value = ''; if (f.p2) f.p2.value = ''; f.p1.focus();
+            if (o.onError) o.onError(e);
+          });
+        }
+        f.onsubmit = function (e) { e.preventDefault(); submit(); };
+        f.p1.addEventListener('input', function () {
+          f.p1.value = f.p1.value.replace(/\D/g, '').slice(0, 4);
+          if (f.p1.value.length === 4) { if (f.p2) f.p2.focus(); else submit(); }
+        });
+        if (f.p2) f.p2.addEventListener('input', function () {
+          f.p2.value = f.p2.value.replace(/\D/g, '').slice(0, 4);
+          if (f.p2.value.length === 4) submit();
+        });
+      });
+  }
+
+  function enterRoom(name) {
+    var r = state.rooms.find(function (x) { return x.name === name; });
+    if (!r) return;
+    function opened(pin) {
+      return function (res) {
+        state.room = { name: name, pin: pin, items: res.items || [] };
+        state.rooms = res.rooms || state.rooms;
+        setTimeout(function () { renderChecklist(); touchRoom(); }, 0);
+      };
+    }
+    if (!r.hasPin) {
+      openPinModal({
+        title: '🚪 設定 ' + name + ' 的房間密碼', confirm: true,
+        help: '請確認你就是 <b>' + esc(name) + '</b> 本人。設定 4 位數密碼後，之後每次進房間都要輸入。忘記的話請管理者重設，房間裡的東西會保留。',
+        onSubmit: function (pin) { return api.setRoomPin(name, pin).then(opened(pin)); }
+      });
+    } else {
+      openPinModal({
+        title: '🔒 ' + name + ' 的房間',
+        onSubmit: function (pin) { return api.openRoom(name, pin).then(opened(pin)); },
+        onError: function () { refresh(true); }
+      });
+    }
+  }
+  function roomCall(action, payload) {
+    var r = state.room;
+    if (!r) return;
+    touchRoom();
+    return api.roomAction(r.name, r.pin, action, payload).then(function (res) {
+      if (!state.room || state.room.name !== r.name) return;
+      state.room.items = res.items || [];
+      state.rooms = res.rooms || state.rooms;
+      if (!state.modalOpen) renderChecklist();
+    }).catch(function (e) {
+      if (isPinError(e)) lockRoom(pinErrorText(e)); else { toast('操作失敗：' + errMsg(e)); if (!state.modalOpen) renderChecklist(); }
+    });
+  }
+
+  /** 行程裡標成「需要預約」的項目，自動列在待辦最上面 */
   function bookingTodoHtml() {
-    var rows = state.itinerary.filter(function (x) { return x.booking === 'need'; }).map(function (x) { return { type: 'itinerary', it: x }; })
-      .concat(state.candidates.filter(function (x) { return x.booking === 'need'; }).map(function (x) { return { type: 'candidates', it: x }; }));
+    // 只看已經排進行程的項目（候選還沒決定要不要去，不列進來）
+    var rows = state.itinerary.filter(function (x) { return x.booking === 'need'; }).map(function (x) { return { type: 'itinerary', it: x }; });
     if (!rows.length) return '';
     rows.sort(function (a, b) { return (a.it.date || '9999').localeCompare(b.it.date || '9999') || (a.it.time || '').localeCompare(b.it.time || ''); });
-    return '<div class="card list-group"><h3>📅 需要預約 <small>自動從行程、候選整理</small></h3>' + rows.map(function (r) {
-      var it = r.it;
+    var today0 = new Date(new Date().toDateString());
+    return '<div class="card list-group"><h3>📅 需要預約 <small>行程裡還沒訂的</small></h3>' + rows.map(function (r) {
+      var it = r.it, d = parseDate(it.date), left = d ? Math.round((d - today0) / 86400000) : null;
+      var when = left == null ? '日期未定' : (left < 0 ? '已經過了' : (left === 0 ? '就是今天！' : '還有 ' + left + ' 天'));
       return '<div class="book-row"><div class="t"><div class="chk-title">' + esc(it.title) + '</div><div class="chk-sub">' +
-        (r.type === 'itinerary' ? '行程' + (it.date ? '・' + esc(fmtShort(it.date)) : '') + (it.time ? ' ' + esc(it.time) : '') : '候選') + '</div></div>' +
+        (it.date ? esc(fmtShort(it.date)) : '') + (it.time ? ' ' + esc(it.time) : '') +
+        '<span class="' + (left != null && left <= 14 ? 'late' : '') + '">' + when + '</span></div></div>' +
         '<button type="button" class="mini go" data-booked="' + r.type + '|' + esc(it.id) + '">✓ 已預約</button></div>';
     }).join('') + '</div>';
   }
@@ -1721,7 +1949,7 @@
     var html = '<h3>' + (item ? '編輯' : '新增') + (isPack ? '行李' : '待辦') + '</h3><form id="chkForm">' +
       '<div class="field"><label>' + (isPack ? '物品' : '事項') + ' *</label><input name="title" required maxlength="100" value="' + esc(it.title) + '" placeholder="' + (isPack ? '例如：轉接頭、防曬乳' : '例如：訂機票、買保險') + '"></div>' +
       (isPack ? '<div class="field"><label>類型</label><div class="seg" id="scopeSeg">' +
-        '<button type="button" data-scope="personal" class="' + (it.scope === 'personal' ? 'on' : '') + '">🧳 每人都要帶</button>' +
+        '<button type="button" data-scope="personal" class="' + (it.scope === 'personal' ? 'on' : '') + '">💡 建議清單（大家挑進自己房間）</button>' +
         '<button type="button" data-scope="shared" class="' + (it.scope !== 'personal' ? 'on' : '') + '">🤝 共用（一人帶）</button></div></div>' : '') +
       '<div class="field" id="ownerField"' + (isPack && it.scope === 'personal' ? ' style="display:none"' : '') + '><label>' + (isPack ? '誰負責帶？' : '誰負責？') + '</label><div class="seg" id="ownerSeg">' +
         '<button type="button" data-owner="" class="' + (!it.owner ? 'on' : '') + '">未定</button>' +
@@ -1849,6 +2077,42 @@
     $('#view-expenses').innerHTML = html;
   }
 
+  function roomAdminHtml() {
+    var now = Date.now();
+    return '<div class="card"><h3>🔐 行李房間密碼管理</h3>' +
+      (state.adminSet ? '<div class="help" style="margin-bottom:8px">有人忘記密碼或被鎖住時，管理者輸入管理密碼就能重設或解鎖（房間裡的東西會保留）。</div>'
+        : '<div class="help" style="margin-bottom:8px;color:var(--warn)">⚠️ 尚未設定管理密碼：到 Apps Script「⚙️ 專案設定 → 指令碼屬性」新增 <b>ADMIN_PASSWORD</b>。</div>') +
+      state.rooms.map(function (r) {
+        var locked = r.lockedUntil && new Date(r.lockedUntil).getTime() > now;
+        var mins = locked ? Math.ceil((new Date(r.lockedUntil).getTime() - now) / 60000) : 0;
+        return '<div class="book-row"><div class="t"><b>' + esc(r.name) + '</b>　<span class="help">' +
+          (locked ? '⏳ 鎖定中（還剩 ' + mins + ' 分）' : (r.hasPin ? '✅ 已設定' : '⚪ 尚未設定')) + '</span></div>' +
+          (locked ? '<button type="button" class="mini" data-admin="unlock|' + esc(r.name) + '">解除鎖定</button>' : '') +
+          (r.hasPin ? '<button type="button" class="mini" data-admin="reset|' + esc(r.name) + '">重設密碼</button>' : '') + '</div>';
+      }).join('') + '</div>';
+  }
+  function adminAction(op, name) {
+    var label = op === 'reset' ? '重設 ' + name + ' 的行李密碼' : '解除 ' + name + ' 的鎖定';
+    openModal('<h3>🔐 ' + esc(label) + '</h3>' +
+      '<div class="help" style="margin:-8px 0 12px">' + (op === 'reset' ? '重設後，' + esc(name) + ' 下次進房間時要設定新密碼，房間裡的東西會保留。' : '解除後可以馬上再輸入密碼。') + '</div>' +
+      '<form id="adminForm" autocomplete="off"><div class="field"><label>管理密碼</label><input name="pw" type="password" autocomplete="off"></div>' +
+      '<div class="pin-msg" id="adminMsg"></div>' +
+      '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" id="cancelBtn">取消</button><button type="submit" class="btn primary">確定</button></div></form>',
+      function (root) {
+        var f = $('#adminForm', root);
+        $('#cancelBtn', root).onclick = closeModal;
+        setTimeout(function () { f.pw.focus(); }, 50);
+        f.onsubmit = function (e) {
+          e.preventDefault();
+          if (!f.pw.value) return;
+          disableForm(f); $('#adminMsg', root).textContent = '處理中…';
+          api.adminRoom(f.pw.value, name, op).then(function (d) {
+            closeModal(); applyData(d); toast(op === 'reset' ? '已重設 ' + name + ' 的密碼' : '已解除 ' + name + ' 的鎖定');
+          }, function (err) { enableForm(f); f.pw.value = ''; $('#adminMsg', root).textContent = errMsg(err); });
+        };
+      });
+  }
+
   function renderSettings() {
     var s = state.settings;
     $('#view-settings').innerHTML =
@@ -1870,11 +2134,12 @@
           }).join('、') : '') + '</div>' +
         '<button class="btn primary" type="submit">儲存設定</button>' +
       '</form>' +
+      roomAdminHtml() +
       '<div class="card"><h3>💡 使用說明</h3><div class="help" style="font-size:13px;line-height:1.7">' +
         '・上方「我是」選你的名字，新增的項目會標上你的名字，記帳時預設由你付款。<br>' +
         '・還沒決定的景點、餐廳先放「候選」，大家投票後按「排入行程」選日期；在行程頁按「＋」也能直接從候選挑。計畫有變可以在行程裡按「移回候選」。<br>' +
         '・行程可先標成「待確認」（虛線框），決定後再改成「已確定」。<br>' +
-        '・「清單」分成行李和待辦：「每人都要帶」的行李各自勾選；共用物品和待辦可以指定負責人。<br>' +
+        '・「清單」分成行李和待辦：共用物品指定一人負責；每個人有自己的「房間」放私人行李，每次進房間都要輸入 4 位數密碼。<br>' +
         '・候選頁上方選「從哪裡出發」（每人各自選，不影響別人），候選會顯示距離，可以「依距離」排序，也能看「🗺️ 地圖」總覽。行程裡兩站之間會顯示車程，來不及會標紅色。<br>' +
         '・每天標題旁的「🗺️ 路線」會依時間順序在 Google 地圖打開當天路線（最多 10 個地點）。<br>' +
         '・行程和候選卡片上的「💬」可以留言討論，有新留言會出現紅點。<br>' +
@@ -2179,7 +2444,7 @@
           '<div class="hist-main"><div class="hist-sum">' + esc(en.summary) + '</div>' +
           '<div class="hist-meta">' + esc(en.actor || '（沒選名字）') + '・' + t + (en.undoneBy ? '・已復原' : '') + '</div>' +
           '<ul class="hist-diff">' + diffLines(en) + '</ul></div>' +
-          (en.undoneBy ? '' : '<button type="button" class="undo-btn" data-undo="' + esc(en.id) + '" data-sum="' + esc(en.summary) + '">↩ 復原</button>') +
+          (en.undoneBy || !(en.changes || []).length ? '' : '<button type="button" class="undo-btn" data-undo="' + esc(en.id) + '" data-sum="' + esc(en.summary) + '">↩ 復原</button>') +
           '</div>';
       }).join('');
     }).catch(function (e) {
@@ -2212,23 +2477,28 @@
   $('#histBtn').addEventListener('click', openHistory);
   // 行程頁左右滑動切換天數
   (function () {
-    var x0 = null, y0 = null, view = $('#view-itinerary');
+    // 判斷條件收緊：要明顯橫向滑、夠快；從螢幕邊緣開始的滑動留給瀏覽器的「上一頁」手勢
+    var x0 = null, y0 = null, t0 = 0, EDGE = 28, view = $('#view-itinerary');
     view.addEventListener('touchstart', function (e) {
-      if (e.target.closest('.day-tabs, .ev-imgs')) { x0 = null; return; }
-      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      var x = e.touches[0].clientX;
+      if (e.touches.length > 1 || e.target.closest('.day-tabs, .ev-imgs') || x < EDGE || x > window.innerWidth - EDGE) { x0 = null; return; }
+      x0 = x; y0 = e.touches[0].clientY; t0 = Date.now();
     }, { passive: true });
     view.addEventListener('touchend', function (e) {
       if (x0 == null) return;
-      var dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      var dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0, dt = Date.now() - t0;
       x0 = null;
-      if (Math.abs(dx) > 60 && Math.abs(dy) < 45) swipeDay(dx < 0 ? 1 : -1);
+      if (Math.abs(dx) > 80 && Math.abs(dy) < 35 && Math.abs(dx) > Math.abs(dy) * 2.5 && dt < 700) swipeDay(dx < 0 ? 1 : -1);
     }, { passive: true });
   })();
   $('#meSelect').addEventListener('change', function (e) { setMe(e.target.value); render(); });
   $('#fab').addEventListener('click', function () {
     if (state.tab === 'itinerary') openAddChooser(selectedDate());
     else if (state.tab === 'candidates') openCandidateForm(null);
-    else if (state.tab === 'checklist') openChecklistForm(null);
+    else if (state.tab === 'checklist') {
+      var ri2 = state.room && document.querySelector('#roomAdd input');
+      if (ri2) { ri2.focus(); ri2.scrollIntoView({ block: 'center' }); } else openChecklistForm(null);
+    }
     else if (state.tab === 'expenses') {
       if (!members().length) { toast('請先到「設定」填寫成員'); return; }
       openExpenseForm(null);
@@ -2236,6 +2506,8 @@
   });
   document.addEventListener('click', function (e) {
     if (e.target.closest('#pdfBtn')) { openPdfPanel(); return; }
+    var adm = e.target.closest('[data-admin]');
+    if (adm) { var ap = adm.dataset.admin.split('|'); adminAction(ap[0], ap[1]); return; }
     var dt = e.target.closest('[data-day]');
     if (dt) { selectDay(dt.dataset.day); return; }
     if (e.target.closest('#mapBtn')) { openMapOverview(); return; }
@@ -2282,6 +2554,33 @@
       if (c2) openEventForm(null, null, c2);
       return;
     }
+    var door = e.target.closest('[data-door]');
+    if (door) { enterRoom(door.dataset.door); return; }
+    if (e.target.closest('#leaveRoom')) { lockRoom('已離開房間，門已鎖上 🔒'); return; }
+    var rc = e.target.closest('[data-rcheck]');
+    if (rc && state.room) {
+      var ri = state.room.items.find(function (x) { return x.id === rc.dataset.rcheck; });
+      if (ri) { ri.done = ri.done === '1' ? '' : '1'; renderChecklist(); popEl('[data-rcheck="' + cssEsc(ri.id) + '"]'); roomCall('toggle', { id: ri.id, done: ri.done === '1' }); }
+      return;
+    }
+    var rd = e.target.closest('[data-rdel]');
+    if (rd && state.room) {
+      state.room.items = state.room.items.filter(function (x) { return x.id !== rd.dataset.rdel; });
+      renderChecklist(); roomCall('remove', { id: rd.dataset.rdel }); return;
+    }
+    var ra = e.target.closest('[data-radd]');
+    if (ra && state.room) {
+      var tpl = state.checklist.find(function (x) { return x.id === ra.dataset.radd; });
+      if (tpl) { ra.disabled = true; roomCall('add', { title: tpl.title, templateId: tpl.id }); }
+      return;
+    }
+    if (e.target.id === 'roomAddAll' && state.room) {
+      var have = {};
+      state.room.items.forEach(function (x) { if (x.templateId) have[x.templateId] = true; });
+      var list = state.checklist.filter(function (x) { return x.kind === 'pack' && isPersonalPack(x) && !have[x.id]; })
+        .map(function (x) { return { title: x.title, templateId: x.id }; });
+      e.target.disabled = true; roomCall('addMany', { items: list }); return;
+    }
     var ck = e.target.closest('[data-check]');
     if (ck) { toggleItem(ck.dataset.check); return; }
     var ek = e.target.closest('[data-edit-chk]');
@@ -2291,7 +2590,7 @@
       return;
     }
     var lv = e.target.closest('[data-listview]');
-    if (lv) { state.listView = lv.dataset.listview; renderChecklist(); return; }
+    if (lv) { state.listView = lv.dataset.listview; if (state.listView !== 'pack') lockRoom(); renderChecklist(); return; }
     if (e.target.id === 'importSuggest') { e.target.disabled = true; importSuggestions(); return; }
     var fb = e.target.closest('[data-filter]');
     if (fb) { state.candFilter = fb.dataset.filter; renderCandidates(); }
@@ -2302,6 +2601,16 @@
     if (e.target.id === 'basePick') pickBase(e.target.value);
   });
   document.addEventListener('submit', function (e) {
+    if (e.target.id === 'roomAdd') {
+      e.preventDefault();
+      var t = e.target.t.value.trim();
+      if (!t || !state.room) return;
+      state.room.items.push({ id: 'tmp' + Date.now(), title: t, done: '', createdAt: new Date().toISOString() });
+      renderChecklist();
+      roomCall('add', { title: t });
+      setTimeout(function () { var i = document.querySelector('#roomAdd input'); if (i) i.focus(); }, 0);
+      return;
+    }
     if (e.target.id !== 'settingsForm') return;
     e.preventDefault();
     var f = e.target;
@@ -2320,7 +2629,10 @@
   setInterval(function () {
     if (!state.modalOpen && !document.hidden) refresh(true);
   }, POLL_MS);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden && !state.modalOpen) refresh(true); });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { lockRoom(); return; }
+    if (!state.modalOpen) refresh(true);
+  });
 
   refresh(false);
 })();

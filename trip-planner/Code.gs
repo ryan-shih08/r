@@ -38,7 +38,7 @@ var TYPE_LABELS = { itinerary: '行程', expenses: '支出', candidates: '候選
 var LOG_KEEP = 300;
 
 /** 程式版本：要跟 Index.html 裡的 APP_VERSION 一樣，不一樣代表其中一個檔案沒更新到 */
-var APP_VERSION = '2026-11-07.1';
+var APP_VERSION = '2026-11-07.2';
 
 /**
  * 上傳圖片存放的 Google 雲端硬碟資料夾 ID
@@ -76,6 +76,7 @@ function doGet() {
 /** 第一次使用可在編輯器手動執行，建立工作表 */
 function setup() {
   ensureSheets_();
+  roomSheets_();
   Logger.log('圖片會存到資料夾：' + DriveApp.getFolderById(UPLOAD_FOLDER_ID).getName());
   var fx = getRates_(getSettings_());
   Logger.log('目前匯率（換算成 ' + fx.base + '）：' + JSON.stringify(fx.rates));
@@ -206,7 +207,10 @@ function getData() {
     itinerary: readRows_('itinerary'),
     expenses: readRows_('expenses'),
     candidates: readRows_('candidates'),
-    checklist: readRows_('checklist'),
+    // 「每人都要帶」的個人勾選改存在各自的房間，不再公開
+    checklist: readRows_('checklist').map(function (r) { r.checkedBy = '[]'; return r; }),
+    rooms: roomStatus_(),
+    adminSet: !!PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD'),
     comments: readRows_('comments'),
     version: APP_VERSION,
     serverTime: new Date().toISOString()
@@ -1088,4 +1092,231 @@ function getOverviewMap(points, base) {
   });
   var blob = map.getBlob();
   return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+}
+
+/* ---------- 行李房間（每個人的私人清單，要 4 位數密碼才能進去） ---------- */
+
+var ROOM_SHEET = '個人行李';
+var PIN_SHEET = '房間密碼';
+var ROOM_HEADERS = ['id', 'owner', 'title', 'note', 'templateId', 'done', 'createdAt', 'updatedAt'];
+var PIN_HEADERS = ['name', 'hash', 'salt', 'fails', 'lockedUntil', 'updatedAt'];
+var PIN_MAX_FAILS = 5;
+var PIN_LOCK_MINUTES = 15;
+
+function roomSheets_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  [[ROOM_SHEET, ROOM_HEADERS], [PIN_SHEET, PIN_HEADERS]].forEach(function (d) {
+    var sh = ss.getSheetByName(d[0]);
+    if (!sh) {
+      sh = ss.insertSheet(d[0]);
+      sh.getRange(1, 1, sh.getMaxRows(), d[1].length).setNumberFormat('@');
+      sh.getRange(1, 1, 1, d[1].length).setValues([d[1]]).setFontWeight('bold');
+      sh.setFrozenRows(1);
+      try { sh.hideSheet(); } catch (e) {}
+    }
+  });
+}
+
+function rowsOf_(sheetName, headers) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  var last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, headers.length).getDisplayValues().map(function (r, i) {
+    var o = { _row: i + 2 };
+    headers.forEach(function (h, j) { o[h] = r[j]; });
+    return o;
+  }).filter(function (o) { return o[headers[0]]; });
+}
+
+function writeObj_(sheetName, headers, rowIndex, obj) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  var row = headers.map(function (h) { return obj[h] == null ? '' : String(obj[h]).slice(0, 500); });
+  if (!rowIndex) rowIndex = sh.getLastRow() + 1;
+  sh.getRange(rowIndex, 1, 1, row.length).setNumberFormat('@').setValues([row]);
+}
+
+/** 密碼雜湊：每人各自的 salt，加上只存在指令碼屬性裡的金鑰（試算表看得到也算不出密碼） */
+function pinPepper_() {
+  var props = PropertiesService.getScriptProperties();
+  var k = props.getProperty('PIN_PEPPER');
+  if (!k) { k = Utilities.getUuid() + Utilities.getUuid(); props.setProperty('PIN_PEPPER', k); }
+  return k;
+}
+function hashPin_(pin, salt) {
+  var sig = Utilities.computeHmacSha256Signature(salt + ':' + pin, pinPepper_());
+  return Utilities.base64Encode(sig);
+}
+
+function memberNames_() {
+  return String(getSettings_().members || '').split(/[,，、]/).map(function (x) { return x.trim(); }).filter(Boolean);
+}
+function checkMember_(name) {
+  name = String(name || '').trim();
+  if (memberNames_().indexOf(name) < 0) throw new Error('成員名單裡沒有「' + name + '」');
+  return name;
+}
+
+function roomStatus_() {
+  roomSheets_();
+  var pins = {};
+  rowsOf_(PIN_SHEET, PIN_HEADERS).forEach(function (p) { pins[p.name] = p; });
+  var now = Date.now();
+  return memberNames_().map(function (n) {
+    var p = pins[n];
+    var locked = p && p.lockedUntil && new Date(p.lockedUntil).getTime() > now ? p.lockedUntil : '';
+    return { name: n, hasPin: !!(p && p.hash), lockedUntil: locked };
+  });
+}
+
+/** 驗證密碼（含錯誤次數與鎖定），通過才回傳 true，否則丟出前端看得懂的錯誤 */
+function verifyPin_(name, pin) {
+  var rec = rowsOf_(PIN_SHEET, PIN_HEADERS).filter(function (p) { return p.name === name; })[0];
+  if (!rec || !rec.hash) throw new Error('NO_PIN:');
+  var now = Date.now();
+  if (rec.lockedUntil && new Date(rec.lockedUntil).getTime() > now) throw new Error('LOCKED:' + rec.lockedUntil);
+  if (/^\d{4}$/.test(String(pin)) && hashPin_(String(pin), rec.salt) === rec.hash) {
+    if (rec.fails !== '0' || rec.lockedUntil) {
+      rec.fails = '0'; rec.lockedUntil = '';
+      writeObj_(PIN_SHEET, PIN_HEADERS, rec._row, rec);
+    }
+    return true;
+  }
+  var fails = (Number(rec.fails) || 0) + 1;
+  if (fails >= PIN_MAX_FAILS) {
+    rec.fails = '0';
+    rec.lockedUntil = new Date(now + PIN_LOCK_MINUTES * 60000).toISOString();
+    writeObj_(PIN_SHEET, PIN_HEADERS, rec._row, rec);
+    throw new Error('LOCKED:' + rec.lockedUntil);
+  }
+  rec.fails = String(fails);
+  writeObj_(PIN_SHEET, PIN_HEADERS, rec._row, rec);
+  throw new Error('PIN_WRONG:' + (PIN_MAX_FAILS - fails));
+}
+
+function roomItems_(name) {
+  return rowsOf_(ROOM_SHEET, ROOM_HEADERS).filter(function (r) { return r.owner === name; }).map(function (r) {
+    return { id: r.id, title: r.title, note: r.note, templateId: r.templateId, done: r.done, createdAt: r.createdAt };
+  });
+}
+
+function withRoomLock_(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try { roomSheets_(); return fn(); } finally { lock.releaseLock(); }
+}
+
+/** 第一次進自己的房間：設定 4 位數密碼（已經設定過就不能用這個改） */
+function setRoomPin(name, pin) {
+  return withRoomLock_(function () {
+    name = checkMember_(name);
+    if (!/^\d{4}$/.test(String(pin))) throw new Error('密碼要是 4 位數字');
+    var rec = rowsOf_(PIN_SHEET, PIN_HEADERS).filter(function (p) { return p.name === name; })[0];
+    if (rec && rec.hash) throw new Error('這個房間已經設定過密碼了，忘記的話請管理者重設');
+    var salt = Utilities.getUuid();
+    writeObj_(PIN_SHEET, PIN_HEADERS, rec ? rec._row : 0,
+      { name: name, hash: hashPin_(String(pin), salt), salt: salt, fails: '0', lockedUntil: '', updatedAt: new Date().toISOString() });
+    migrateChecks_(name);
+    addLog_(name, 'room', name + ' 設定了行李房間密碼', []);
+    return { items: roomItems_(name), rooms: roomStatus_() };
+  });
+}
+
+/** 舊版「每人都要帶」的勾選搬進個人房間，並從公開資料移除名字 */
+function migrateChecks_(name) {
+  var sheet = sheetOf_('checklist');
+  var def = SHEETS.checklist, col = def.headers.indexOf('checkedBy') + 1;
+  var existing = {};
+  roomItems_(name).forEach(function (r) { if (r.templateId) existing[r.templateId] = true; });
+  readRows_('checklist').forEach(function (it) {
+    if (it.kind !== 'pack' || it.scope !== 'personal') return;
+    var by = [];
+    try { by = JSON.parse(it.checkedBy || '[]') || []; } catch (e) {}
+    if (by.indexOf(name) < 0) return;
+    if (!existing[it.id]) {
+      var now = new Date().toISOString();
+      writeObj_(ROOM_SHEET, ROOM_HEADERS, 0, { id: Utilities.getUuid(), owner: name, title: it.title, note: '', templateId: it.id, done: '1', createdAt: now, updatedAt: now });
+    }
+    var r = findRow_(sheet, it.id);
+    if (r) sheet.getRange(r, col).setValue(JSON.stringify(by.filter(function (n) { return n !== name; })));
+  });
+}
+
+/** 進房間：密碼正確就回傳這個人的清單 */
+function openRoom(name, pin) {
+  return withRoomLock_(function () {
+    name = checkMember_(name);
+    verifyPin_(name, pin);
+    return { items: roomItems_(name), rooms: roomStatus_() };
+  });
+}
+
+/**
+ * 房間裡的操作，每次都會再驗證一次密碼（密碼只放在前端記憶體，離開房間就清掉）。
+ * action: add {title, note, templateId} | addMany {items:[{title, templateId}]} | toggle {id, done} | remove {id}
+ * 個人清單的內容不寫進公開的修改紀錄。
+ */
+function roomAction(name, pin, action, payload) {
+  return withRoomLock_(function () {
+    name = checkMember_(name);
+    verifyPin_(name, pin);
+    payload = payload || {};
+    var now = new Date().toISOString();
+    var rows = rowsOf_(ROOM_SHEET, ROOM_HEADERS);
+    var mine = function (id) { return rows.filter(function (r) { return r.id === id && r.owner === name; })[0]; };
+    if (action === 'add' || action === 'addMany') {
+      var list = action === 'add' ? [payload] : (payload.items || []).slice(0, 100);
+      list.forEach(function (x) {
+        var title = String(x.title || '').trim().slice(0, 100);
+        if (!title) return;
+        writeObj_(ROOM_SHEET, ROOM_HEADERS, 0, { id: Utilities.getUuid(), owner: name, title: title, note: String(x.note || '').slice(0, 300),
+          templateId: String(x.templateId || ''), done: '', createdAt: now, updatedAt: now });
+      });
+    } else if (action === 'toggle') {
+      var t = mine(payload.id);
+      if (t) { t.done = payload.done ? '1' : ''; t.updatedAt = now; writeObj_(ROOM_SHEET, ROOM_HEADERS, t._row, t); }
+    } else if (action === 'remove') {
+      var d = mine(payload.id);
+      if (d) SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ROOM_SHEET).deleteRow(d._row);
+    } else {
+      throw new Error('未知的操作');
+    }
+    return { items: roomItems_(name), rooms: roomStatus_() };
+  });
+}
+
+/** 管理者：重設密碼（清單保留）或解除鎖定。管理密碼設在「專案設定 → 指令碼屬性」的 ADMIN_PASSWORD */
+function adminRoom(adminPassword, name, op) {
+  var props = PropertiesService.getScriptProperties();
+  var real = props.getProperty('ADMIN_PASSWORD');
+  if (!real) throw new Error('還沒有設定管理密碼：請到 Apps Script「專案設定 → 指令碼屬性」新增 ADMIN_PASSWORD');
+  var lockedUntil = Number(props.getProperty('ADMIN_LOCKED_UNTIL') || 0);
+  if (lockedUntil > Date.now()) throw new Error('管理密碼錯太多次，請 ' + Math.ceil((lockedUntil - Date.now()) / 60000) + ' 分鐘後再試');
+  if (String(adminPassword) !== real) {
+    var fails = Number(props.getProperty('ADMIN_FAILS') || 0) + 1;
+    if (fails >= PIN_MAX_FAILS) {
+      props.setProperty('ADMIN_LOCKED_UNTIL', String(Date.now() + PIN_LOCK_MINUTES * 60000));
+      props.setProperty('ADMIN_FAILS', '0');
+      throw new Error('管理密碼錯太多次，已鎖定 ' + PIN_LOCK_MINUTES + ' 分鐘');
+    }
+    props.setProperty('ADMIN_FAILS', String(fails));
+    throw new Error('管理密碼錯誤，還可以再試 ' + (PIN_MAX_FAILS - fails) + ' 次');
+  }
+  props.setProperty('ADMIN_FAILS', '0');
+  withRoomLock_(function () {
+    name = checkMember_(name);
+    var rec = rowsOf_(PIN_SHEET, PIN_HEADERS).filter(function (p) { return p.name === name; })[0];
+    if (!rec) throw new Error(name + ' 還沒有設定密碼');
+    if (op === 'reset') {
+      rec.hash = ''; rec.salt = ''; rec.fails = '0'; rec.lockedUntil = '';
+      addLog_('管理者', 'admin', '管理者重設了 ' + name + ' 的行李密碼', []);
+    } else if (op === 'unlock') {
+      rec.fails = '0'; rec.lockedUntil = '';
+      addLog_('管理者', 'admin', '管理者解除了 ' + name + ' 的行李房間鎖定', []);
+    } else {
+      throw new Error('未知的操作');
+    }
+    rec.updatedAt = new Date().toISOString();
+    writeObj_(PIN_SHEET, PIN_HEADERS, rec._row, rec);
+  });
+  return getData();
 }
